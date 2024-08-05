@@ -16,7 +16,7 @@ Output2: plot event timecourse and warped cluster
 
 Output3: Plot warped clusters and fitted ellipse
 
-<img width="750" alt="スクリーンショット 2024-08-05 15 52 08" src="https://github.com/user-attachments/assets/d620c7e0-a27a-4d2e-be36-a3c3d1e1fc8f">
+<img width="1312" alt="スクリーンショット 2024-08-05 23 40 56" src="https://github.com/user-attachments/assets/b1750166-f3b4-4796-98a3-31eaa78f5016">
 
 
 
