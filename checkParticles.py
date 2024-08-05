@@ -109,17 +109,37 @@ for particle_id, particle_info in particle_data.items():
             rotated_window_events = window_events
 
         # Project the rotated events onto the XY plane
-        projected_points = rotated_window_events[:, [0, 1]]
+        projected_points_rotated = rotated_window_events[:, [0, 1]]
 
-        # Fit an ellipse using PCA
-        pca = PCA(n_components=2)
-        pca.fit(projected_points)
-        center = pca.mean_
-        width, height = 4 * np.sqrt(pca.explained_variance_)  # Scale factor increased to 4
-        angle = np.degrees(np.arctan2(*pca.components_[0][::-1]))
+        # Fit an ellipse using PCA for the rotated data
+        pca_rotated = PCA(n_components=2)
+        pca_rotated.fit(projected_points_rotated)
+        center_rotated = pca_rotated.mean_
+        width_rotated, height_rotated = 4 * np.sqrt(pca_rotated.explained_variance_)  # Scale factor increased to 4
+        angle_rotated = np.degrees(np.arctan2(*pca_rotated.components_[0][::-1]))
+        
+        # Calculate area of the ellipse for rotated data
+        semi_major_axis_rotated = width_rotated / 2
+        semi_minor_axis_rotated = height_rotated / 2
+        area_rotated = np.pi * semi_major_axis_rotated * semi_minor_axis_rotated
 
-        # Plot the smoothed event counts over time
-        plt.figure(figsize=(10, 8))
+        # Project the original (non-rotated) events onto the XY plane
+        projected_points_original = window_events[:, [0, 1]]
+
+        # Fit an ellipse using PCA for the original data
+        pca_original = PCA(n_components=2)
+        pca_original.fit(projected_points_original)
+        center_original = pca_original.mean_
+        width_original, height_original = 4 * np.sqrt(pca_original.explained_variance_)
+        angle_original = np.degrees(np.arctan2(*pca_original.components_[0][::-1]))
+
+        # Calculate area of the ellipse for original data
+        semi_major_axis_original = width_original / 2
+        semi_minor_axis_original = height_original / 2
+        area_original = np.pi * semi_major_axis_original * semi_minor_axis_original
+
+        # Plot the results
+        plt.figure(figsize=(12, 8))
         
         # First subplot: smoothed event counts and polynomial fit
         plt.subplot(3, 1, 1)
@@ -133,27 +153,42 @@ for particle_id, particle_info in particle_data.items():
         plt.grid(True)
 
         # Second subplot: 3D scatter plot of events
-        ax1 = plt.subplot(3, 1, 2, projection='3d')
+        ax1 = plt.subplot(3, 2, 3, projection='3d')
         ax1.scatter(window_events[:, 0], window_events[:, 1], window_events[:, 2], c='b', marker='o')
         ax1.set_title('3D Event Distribution in Peak Window')
         ax1.set_xlabel('X')
         ax1.set_ylabel('Y')
         ax1.set_zlabel('Time (ms)')
 
-        # Third subplot: 2D projection with ellipse fit
-        ax2 = plt.subplot(3, 1, 3)
-        ax2.scatter(projected_points[:, 0], projected_points[:, 1], c='r', marker='o')
+        # Third subplot: 2D projection with ellipse fit for original events
+        ax2 = plt.subplot(3, 2, 5)
+        ax2.scatter(projected_points_original[:, 0], projected_points_original[:, 1], c='r', marker='o')
 
-        # Add the ellipse patch
-        ellipse = Ellipse(xy=center, width=width, height=height, angle=angle, edgecolor='blue', facecolor='none', linestyle='--', linewidth=2)
-        ax2.add_patch(ellipse)
-        ax2.set_xlim([projected_points[:, 0].min() - 10, projected_points[:, 0].max() + 10])
-        ax2.set_ylim([projected_points[:, 1].min() - 10, projected_points[:, 1].max() + 10])
-        ax2.set_title(f'Projection Aligned with Centroid Line for Particle {particle_id}')
+        # Add the ellipse patch for original data
+        ellipse_original = Ellipse(xy=center_original, width=width_original, height=height_original, angle=angle_original, edgecolor='green', facecolor='none', linestyle='--', linewidth=2)
+        ax2.add_patch(ellipse_original)
+        ax2.set_xlim([projected_points_original[:, 0].min() - 10, projected_points_original[:, 0].max() + 10])
+        ax2.set_ylim([projected_points_original[:, 1].min() - 10, projected_points_original[:, 1].max() + 10])
+        ax2.set_title('Original XY Projection')
         ax2.set_xlabel('X')
         ax2.set_ylabel('Y')
         ax2.axis('equal')
-        plt.legend(['Projected Points', 'Ellipse Fit'])
+        ax2.text(0.05, 0.95, f'Area: {area_original:.2f}', transform=ax2.transAxes, fontsize=10, verticalalignment='top')
+
+        # Fourth subplot: 2D projection with ellipse fit for rotated events
+        ax3 = plt.subplot(3, 2, 6)
+        ax3.scatter(projected_points_rotated[:, 0], projected_points_rotated[:, 1], c='r', marker='o')
+
+        # Add the ellipse patch for rotated data
+        ellipse_rotated = Ellipse(xy=center_rotated, width=width_rotated, height=height_rotated, angle=angle_rotated, edgecolor='blue', facecolor='none', linestyle='--', linewidth=2)
+        ax3.add_patch(ellipse_rotated)
+        ax3.set_xlim([projected_points_rotated[:, 0].min() - 10, projected_points_rotated[:, 0].max() + 10])
+        ax3.set_ylim([projected_points_rotated[:, 1].min() - 10, projected_points_rotated[:, 1].max() + 10])
+        ax3.set_title('Rotated Projection Aligned with Centroid Line')
+        ax3.axis('equal')
+        ax3.set_xticklabels([])  # Remove x-axis labels
+        ax3.set_yticklabels([])  # Remove y-axis labels
+        ax3.text(0.05, 0.95, f'Area: {area_rotated:.2f}', transform=ax3.transAxes, fontsize=10, verticalalignment='top')
 
         plt.tight_layout()
         plt.show()
