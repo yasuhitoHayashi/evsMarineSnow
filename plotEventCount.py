@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import pickle
 import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+from sklearn.decomposition import PCA
 
 # Load the particle data to access their events
 particle_output_file = 'particle_tracking_results.pkl'
@@ -109,6 +111,13 @@ for particle_id, particle_info in particle_data.items():
         # Project the rotated events onto the XY plane
         projected_points = rotated_window_events[:, [0, 1]]
 
+        # Fit an ellipse using PCA
+        pca = PCA(n_components=2)
+        pca.fit(projected_points)
+        center = pca.mean_
+        width, height = 4 * np.sqrt(pca.explained_variance_)  # Scale factor increased to 4
+        angle = np.degrees(np.arctan2(*pca.components_[0][::-1]))
+
         # Plot the smoothed event counts over time
         plt.figure(figsize=(10, 8))
         
@@ -131,13 +140,20 @@ for particle_id, particle_info in particle_data.items():
         ax1.set_ylabel('Y')
         ax1.set_zlabel('Time (ms)')
 
-        # Third subplot: 2D projection aligned with direction
-        plt.subplot(3, 1, 3)
-        plt.scatter(projected_points[:, 0], projected_points[:, 1], c='r', marker='o')
-        plt.title(f'Projection Aligned with Centroid Line for Particle {particle_id}')
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.axis('equal')
+        # Third subplot: 2D projection with ellipse fit
+        ax2 = plt.subplot(3, 1, 3)
+        ax2.scatter(projected_points[:, 0], projected_points[:, 1], c='r', marker='o')
+
+        # Add the ellipse patch
+        ellipse = Ellipse(xy=center, width=width, height=height, angle=angle, edgecolor='blue', facecolor='none', linestyle='--', linewidth=2)
+        ax2.add_patch(ellipse)
+        ax2.set_xlim([projected_points[:, 0].min() - 10, projected_points[:, 0].max() + 10])
+        ax2.set_ylim([projected_points[:, 1].min() - 10, projected_points[:, 1].max() + 10])
+        ax2.set_title(f'Projection Aligned with Centroid Line for Particle {particle_id}')
+        ax2.set_xlabel('X')
+        ax2.set_ylabel('Y')
+        ax2.axis('equal')
+        plt.legend(['Projected Points', 'Ellipse Fit'])
 
         plt.tight_layout()
         plt.show()
