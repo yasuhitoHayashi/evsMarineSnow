@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 
 # CSVファイルのパス
 file_path = 'suruga_test_short.csv'
-#file_path = '195_falling_particles.csv'
 
 # CSVファイルの読み込み
 data = pd.read_csv(file_path, header=None, names=['x', 'y', 'polarity', 'time'])
@@ -24,23 +23,15 @@ dataN = data[data['polarity'] == 0]
 fig = plt.figure(figsize=(10, 8))
 ax = fig.add_subplot(111, projection='3d')
 ax.scatter(dataP['time'], dataP['x'], dataP['y'], s=2, c='blue', edgecolors='none', marker='.')
-#ax.scatter(dataN['time'], dataN['x'], dataN['y'], s=2, c='red', edgecolors='none', marker='.')
 
-# 上からのビュー設定
-#ax.view_init(elev=90, azim=0)
+# Set axis labels
+ax.set_ylabel('X Coordinate')
+ax.set_zlabel('Y Coordinate')
+ax.set_xlabel('Time (milliseconds)')
 
-# プロットの表示
-#plt.show()
-# アニメーションの更新関数
-#def update(frame):
-#    ax.view_init(elev=10, azim=frame)
-#    return ax,
+# Set axis limits to maintain aspect ratio
+ax.set_xlim([0, 1000])
+ax.set_ylim([0, 1280])
+ax.set_zlim([0, 720])
 
-# アニメーションの作成
-#ani = FuncAnimation(fig, update, frames=range(0, 360), interval=10, blit=False, repeat=False)
-
-# 動画の保存
-#ani.save('particle_rotation.mp4', writer='ffmpeg', dpi=100)
-
-# プロットの表示
 plt.show()

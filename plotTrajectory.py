@@ -47,8 +47,5 @@ ax.set_xlim([0, 1000])
 ax.set_ylim([0, 1280])
 ax.set_zlim([0, 720])
 
-# Add title and legend
-ax.set_title(f'3D Trajectory of Particle Centroids Over Time (Mass ≥ {mass_threshold})')
-
 # Show the plot
 plt.show()
