@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 import pickle
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 # Load the centroid history data from the pickle file
 centroid_output_file = 'centroid_history_results.pkl'
@@ -18,8 +19,9 @@ with open(particle_output_file, 'rb') as f:
 # Define a mass threshold for filtering particles
 mass_threshold = 1000  # You can adjust this threshold
 
-# Create a 3D scatter plot using Plotly
-fig = go.Figure()
+# Create a 3D plot using Matplotlib
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
 
 # Add each particle's trajectory to the plot
 for particle_id, history in centroid_history.items():
@@ -28,26 +30,25 @@ for particle_id, history in centroid_history.items():
         # Unpack the history into separate lists
         times, centroids = zip(*history)
         centroids = np.array(centroids)
-        
-        # Add the trajectory as a line plot
-        fig.add_trace(go.Scatter3d(
-            x=centroids[:, 0],
-            y=centroids[:, 1],
-            z=times,
-            mode='lines',
-            name=f'Particle {particle_id}'
-        ))
 
-# Update plot layout
-fig.update_layout(
-    scene=dict(
-        xaxis_title='X Coordinate',
-        yaxis_title='Y Coordinate',
-        zaxis_title='Time (microseconds)'
-    ),
-    title=f'3D Trajectory of Particle Centroids Over Time (Mass ≥ {mass_threshold})',
-    showlegend=True
-)
+        # Convert times to milliseconds for visualization
+        times = np.array(times) * 1e-3
+
+        # Plot the trajectory as a line
+        ax.plot(times,centroids[:, 0], centroids[:, 1])
+
+# Set axis labels
+ax.set_ylabel('X Coordinate')
+ax.set_zlabel('Y Coordinate')
+ax.set_xlabel('Time (milliseconds)')
+
+# Set axis limits to maintain aspect ratio
+ax.set_xlim([0, 1000])
+ax.set_ylim([0, 1280])
+ax.set_zlim([0, 720])
+
+# Add title and legend
+ax.set_title(f'3D Trajectory of Particle Centroids Over Time (Mass ≥ {mass_threshold})')
 
 # Show the plot
-fig.show()
+plt.show()
