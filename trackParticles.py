@@ -3,18 +3,15 @@ import numpy as np
 import pickle
 from collections import deque
 from tqdm import tqdm
-from numba import njit, jit
+from numba import njit
+import argparse
+import os
 
-# CSVファイルのパス
-file_path = 'suruga_test_short.csv'
-# file_path = '195_falling_particles.csv'
-
-# CSVファイルの読み込み
-data = pd.read_csv(file_path, header=None, names=['x', 'y', 'polarity', 'time'])
-
-# 極性が1のデータのみを使用
-data_filtered = data[data['polarity'] == 1].copy()
-print(f"フィルタリング後のデータ数: {len(data_filtered)}")
+# コマンドライン引数を解析
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Process event-based particle tracking.')
+    parser.add_argument('-i', '--input', required=True, help='Path to the input CSV file')
+    return parser.parse_args()
 
 # パーティクルを管理するクラス
 class Particle:
@@ -83,24 +80,40 @@ def track_particles(data, spatial_radius=24, time_window=2000, m_threshold=10000
 
     return particles
 
-# パーティクル追跡の実行
-particles = track_particles(data_filtered)
-print(f"追跡されたパーティクル数: {len(particles)}")
+if __name__ == "__main__":
+    # コマンドライン引数を取得
+    args = parse_arguments()
 
-# 結果を辞書として出力
-particle_data = {pid: {'centroid': p.centroid.tolist(), 'mass': p.mass, 'events': list(p.events)} for pid, p in particles.items()}
+    # 入力ファイルのパス
+    input_file_path = args.input
 
-# 重心履歴を保存する辞書
-centroid_history = {pid: p.centroid_history for pid, p in particles.items()}
+    # 出力ファイル名を生成
+    base_name = os.path.splitext(os.path.basename(input_file_path))[0]
+    particle_output_file = f'{base_name}_tracking.pkl'
+    centroid_output_file = f'{base_name}_centroid.pkl'
 
-# クラスタリング結果をPickleファイルに保存
-particle_output_file = 'particle_tracking_results.pkl'
-centroid_output_file = 'centroid_history_results.pkl'
+    # CSVファイルの読み込み
+    data = pd.read_csv(input_file_path, header=None, names=['x', 'y', 'polarity', 'time'])
 
-with open(particle_output_file, 'wb') as f:
-    pickle.dump(particle_data, f)
-print(f"パーティクル追跡結果を {particle_output_file} に保存しました")
+    # 極性が1のデータのみを使用
+    data_filtered = data[data['polarity'] == 1].copy()
+    print(f"フィルタリング後のデータ数: {len(data_filtered)}")
 
-with open(centroid_output_file, 'wb') as f:
-    pickle.dump(centroid_history, f)
-print(f"重心履歴を {centroid_output_file} に保存しました")
+    # パーティクル追跡の実行
+    particles = track_particles(data_filtered)
+    print(f"追跡されたパーティクル数: {len(particles)}")
+
+    # 結果を辞書として出力
+    particle_data = {pid: {'centroid': p.centroid.tolist(), 'mass': p.mass, 'events': list(p.events)} for pid, p in particles.items()}
+
+    # 重心履歴を保存する辞書
+    centroid_history = {pid: p.centroid_history for pid, p in particles.items()}
+
+    # クラスタリング結果をPickleファイルに保存
+    with open(particle_output_file, 'wb') as f:
+        pickle.dump(particle_data, f)
+    print(f"パーティクル追跡結果を {particle_output_file} に保存しました")
+
+    with open(centroid_output_file, 'wb') as f:
+        pickle.dump(centroid_history, f)
+    print(f"重心履歴を {centroid_output_file} に保存しました")
