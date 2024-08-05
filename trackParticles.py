@@ -50,7 +50,7 @@ def calculate_distance_sq(x1, y1, x2, y2):
     return (x1 - x2) ** 2 + (y1 - y2) ** 2
 
 # パーティクル追跡
-def track_particles(data, spatial_radius=12, time_window=2000, m_threshold=10000):
+def track_particles(data, spatial_radius=5, time_window=2000, m_threshold=10000):
     particles = {}
     particle_id_counter = 0
     active_particles = []
