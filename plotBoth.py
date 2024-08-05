@@ -19,6 +19,9 @@ with open(particle_output_file, 'rb') as f:
 # Define a mass threshold for filtering particles
 mass_threshold = 1000  # You can adjust this threshold
 
+# Define a sampling ratio for event downsampling
+sampling_ratio = 0.1  # Use 10% of the events for plotting
+
 # Create a 3D plot using Matplotlib
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
@@ -41,8 +44,16 @@ for particle_id, history in centroid_history.items():
         event_coords = np.array(particle_data[particle_id]['events'])
         event_times = event_coords[:, 2] * 1e-3  # Convert event times to milliseconds
 
-        # Scatter plot for events
-        ax.scatter(event_times, event_coords[:, 0], event_coords[:, 1], s=1,marker='.')
+        # Downsample the events
+        num_events = len(event_coords)
+        sample_size = int(num_events * sampling_ratio)
+        if sample_size > 0:
+            sampled_indices = np.random.choice(num_events, sample_size, replace=False)
+            sampled_events = event_coords[sampled_indices]
+            sampled_event_times = event_times[sampled_indices]
+            
+            # Scatter plot for sampled events
+            ax.scatter(sampled_event_times, sampled_events[:, 0], sampled_events[:, 1], alpha=0.3, marker='.')
 
 # Set axis labels
 ax.set_ylabel('X Coordinate')
@@ -53,6 +64,7 @@ ax.set_xlabel('Time (milliseconds)')
 ax.set_xlim([0, 1000])
 ax.set_ylim([0, 1280])
 ax.set_zlim([0, 720])
+
 
 # Show the plot
 plt.show()
