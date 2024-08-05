@@ -10,13 +10,13 @@ with open(particle_output_file, 'rb') as f:
     particle_data = pickle.load(f)
 
 # Define a mass threshold for filtering particles
-mass_threshold = 1000  # You can adjust this threshold
+mass_threshold = 10000  # You can adjust this threshold
 
 # Define time bin size in microseconds (1 ms = 1000 μs)
 time_bin_size = 1000
 
 # Define window size for smoothing (e.g., 5 milliseconds)
-smoothing_window_size = 10  # This should be in terms of the number of bins
+smoothing_window_size = 5  # This should be in terms of the number of bins
 
 # Process each particle
 for particle_id, particle_info in particle_data.items():
@@ -40,11 +40,40 @@ for particle_id, particle_info in particle_data.items():
         # Apply smoothing using a moving average
         smoothed_event_counts = np.convolve(event_counts, np.ones(smoothing_window_size) / smoothing_window_size, mode='same')
         
+        # Perform FFT on the smoothed event counts
+        fft_result = np.fft.fft(smoothed_event_counts)
+        fft_freq = np.fft.fftfreq(len(smoothed_event_counts), d=time_bin_size * 1e-3)  # Frequency in Hz (1/ms)
+
+        # Only take the positive frequencies for plotting
+        positive_freqs = fft_freq[:len(fft_freq) // 2]
+        positive_magnitudes = np.abs(fft_result[:len(fft_result) // 2])
+        
+        # Filter out zero frequencies to avoid log(0) issues
+        nonzero_indices = positive_freqs > 0
+        positive_freqs = positive_freqs[nonzero_indices]
+        positive_magnitudes = positive_magnitudes[nonzero_indices]
+        
         # Plot the smoothed event counts over time
-        plt.figure()
+        plt.figure(figsize=(12, 8))
+        
+        # First subplot for smoothed event counts
+        plt.subplot(2, 1, 1)
         plt.plot(time_bins[:-1], smoothed_event_counts, label='Smoothed Event Count', linewidth=2)
         plt.xlabel('Time (milliseconds)')
         plt.ylabel('Number of Events')
         plt.title(f'Event Count over Time for Particle {particle_id}')
         plt.grid(True)
+        
+        # Second subplot for FFT result
+        plt.subplot(2, 1, 2)
+        plt.plot(positive_freqs, positive_magnitudes, label='FFT Magnitude')
+        plt.xscale('log')
+        plt.yscale('log')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude')
+        plt.title('Frequency Spectrum (Log-Log Scale)')
+        plt.grid(True)
+        
+        # Show the plot
+        plt.tight_layout()
         plt.show()
