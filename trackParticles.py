@@ -3,11 +3,10 @@ import numpy as np
 import pickle
 from collections import deque
 from tqdm import tqdm
-from numba import njit, jit
+from numba import njit
 
 # CSVファイルのパス
 file_path = 'suruga_test_short.csv'
-# file_path = '195_falling_particles.csv'
 
 # CSVファイルの読み込み
 data = pd.read_csv(file_path, header=None, names=['x', 'y', 'polarity', 'time'])
@@ -20,22 +19,24 @@ print(f"フィルタリング後のデータ数: {len(data_filtered)}")
 class Particle:
     def __init__(self, particle_id, x, y, time):
         self.particle_id = particle_id
-        self.events = deque([(x, y, time)])  # Events are stored with coordinates and time
+        self.events = deque([(x, y, time)])  # Store all events with coordinates and time
         self.mass = 1
         self.centroid = np.array([x, y], dtype=np.float64)
         self.centroid_history = [(time, self.centroid.copy())]
+        self.centroid_time_window = 1000  # Time window in microseconds for centroid calculation
 
     def add_event(self, x, y, time):
         self.events.append((x, y, time))
         self.mass += 1
-        # Remove old events outside the 2 ms window
-        while self.events and self.events[0][2] < time - 2000:
-            self.events.popleft()
 
-        # Update centroid
-        coords = np.array([event[:2] for event in self.events], dtype=np.float64)
-        self.centroid = coords.mean(axis=0)
-        self.centroid_history.append((time, self.centroid.copy()))
+        # Only consider recent events within the time window for centroid calculation
+        recent_events = [event for event in self.events if event[2] >= time - self.centroid_time_window]
+        
+        # Update centroid using recent events
+        if recent_events:
+            coords = np.array([event[:2] for event in recent_events], dtype=np.float64)
+            self.centroid = coords.mean(axis=0)
+            self.centroid_history.append((time, self.centroid.copy()))
 
     def is_active(self, current_time, m_threshold):
         # A particle is inactive if no events in 2 ms and mass < M
