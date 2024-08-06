@@ -108,8 +108,8 @@ for particle_id, particle_info in particle_data.items():
             # If the rotation axis is zero, no rotation is needed
             rotated_window_events = window_events
 
-        # Project the rotated events onto the XY plane
-        projected_points_rotated = rotated_window_events[:, [0, 1]]
+        # Project the rotated events onto the XY plane by ignoring Z-component
+        projected_points_rotated = rotated_window_events[:, :2]
 
         # Fit an ellipse using PCA for the rotated data
         pca_rotated = PCA(n_components=2)
@@ -124,7 +124,7 @@ for particle_id, particle_info in particle_data.items():
         area_rotated = np.pi * semi_major_axis_rotated * semi_minor_axis_rotated
 
         # Project the original (non-rotated) events onto the XY plane
-        projected_points_original = window_events[:, [0, 1]]
+        projected_points_original = window_events[:, :2]
 
         # Fit an ellipse using PCA for the original data
         pca_original = PCA(n_components=2)
@@ -186,8 +186,8 @@ for particle_id, particle_info in particle_data.items():
         ax3.set_ylim([projected_points_rotated[:, 1].min() - 10, projected_points_rotated[:, 1].max() + 10])
         ax3.set_title('Rotated Projection Aligned with Centroid Line')
         ax3.axis('equal')
-        ax3.set_xticklabels([])  # Remove x-axis labels
-        ax3.set_yticklabels([])  # Remove y-axis labels
+        #ax3.set_xticklabels([])  # Remove x-axis labels
+        #ax3.set_yticklabels([])  # Remove y-axis labels
         ax3.text(0.05, 0.95, f'Area: {area_rotated:.2f}', transform=ax3.transAxes, fontsize=10, verticalalignment='top')
 
         plt.tight_layout()
