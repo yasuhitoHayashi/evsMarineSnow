@@ -4,22 +4,32 @@ import pickle
 from collections import deque
 from tqdm import tqdm
 from numba import njit
+import argparse
+import os
+import cProfile
+import pstats  # Import pstats for profiling
 
-# CSVファイルのパス
-file_path = 'suruga_test_short.csv'
+# Argument parser for command line arguments
+parser = argparse.ArgumentParser(description='Particle tracking script.')
+parser.add_argument('-i', '--input', required=True, help='Path to the input CSV file.')
+args = parser.parse_args()
 
-# CSVファイルの読み込み
+# CSV file path
+file_path = args.input
+
+# Read CSV file
 data = pd.read_csv(file_path, header=None, names=['x', 'y', 'polarity', 'time'])
 
-# 極性が1のデータのみを使用
+# Use only data with polarity 1
 data_filtered = data[data['polarity'] == 1].copy()
-print(f"フィルタリング後のデータ数: {len(data_filtered)}")
+print(f"Number of data points after filtering: {len(data_filtered)}")
 
-# パーティクルを管理するクラス
+# Class to manage particles
 class Particle:
     def __init__(self, particle_id, x, y, time):
         self.particle_id = particle_id
         self.events = deque([(x, y, time)])  # Store all events with coordinates and time
+        self.recent_events = deque([(x, y, time)])  # Separate deque for recent events
         self.mass = 1
         self.centroid = np.array([x, y], dtype=np.float64)
         self.centroid_history = [(time, self.centroid.copy())]
@@ -27,14 +37,16 @@ class Particle:
 
     def add_event(self, x, y, time):
         self.events.append((x, y, time))
+        self.recent_events.append((x, y, time))  # Add to recent events
         self.mass += 1
 
-        # Only consider recent events within the time window for centroid calculation
-        recent_events = [event for event in self.events if event[2] >= time - self.centroid_time_window]
+        # Remove old events from the recent events deque
+        while self.recent_events and self.recent_events[0][2] < time - self.centroid_time_window:
+            self.recent_events.popleft()
         
         # Update centroid using recent events
-        if recent_events:
-            coords = np.array([event[:2] for event in recent_events], dtype=np.float64)
+        if self.recent_events:
+            coords = np.array([event[:2] for event in self.recent_events], dtype=np.float64)
             self.centroid = coords.mean(axis=0)
             self.centroid_history.append((time, self.centroid.copy()))
 
@@ -49,7 +61,7 @@ class Particle:
 def calculate_distance_sq(x1, y1, x2, y2):
     return (x1 - x2) ** 2 + (y1 - y2) ** 2
 
-# パーティクル追跡
+# Particle tracking
 def track_particles(data, spatial_radius=6, time_window=2000, m_threshold=10000):
     particles = {}
     particle_id_counter = 0
@@ -84,24 +96,37 @@ def track_particles(data, spatial_radius=6, time_window=2000, m_threshold=10000)
 
     return particles
 
-# パーティクル追跡の実行
-particles = track_particles(data_filtered)
-print(f"追跡されたパーティクル数: {len(particles)}")
+# Profile the script
+if __name__ == "__main__":
+    profiler = cProfile.Profile()
+    profiler.enable()
+    
+    # Run particle tracking
+    particles = track_particles(data_filtered)
+    print(f"Number of tracked particles: {len(particles)}")
 
-# 結果を辞書として出力
-particle_data = {pid: {'centroid': p.centroid.tolist(), 'mass': p.mass, 'events': list(p.events)} for pid, p in particles.items()}
+    # Output results as a dictionary
+    particle_data = {pid: {'centroid': p.centroid.tolist(), 'mass': p.mass, 'events': list(p.events)} for pid, p in particles.items()}
 
-# 重心履歴を保存する辞書
-centroid_history = {pid: p.centroid_history for pid, p in particles.items()}
+    # Save centroid history in a dictionary
+    centroid_history = {pid: p.centroid_history for pid, p in particles.items()}
 
-# クラスタリング結果をPickleファイルに保存
-particle_output_file = 'particle_tracking_results.pkl'
-centroid_output_file = 'centroid_history_results.pkl'
+    # Get the base name of the input file without the extension
+    base_file_name = os.path.splitext(os.path.basename(file_path))[0]
 
-with open(particle_output_file, 'wb') as f:
-    pickle.dump(particle_data, f)
-print(f"パーティクル追跡結果を {particle_output_file} に保存しました")
+    # Save clustering results to a Pickle file
+    particle_output_file = f'particle_tracking_results_{base_file_name}.pkl'
+    centroid_output_file = f'centroid_history_results_{base_file_name}.pkl'
 
-with open(centroid_output_file, 'wb') as f:
-    pickle.dump(centroid_history, f)
-print(f"重心履歴を {centroid_output_file} に保存しました")
+    with open(particle_output_file, 'wb') as f:
+        pickle.dump(particle_data, f)
+    print(f"Particle tracking results saved to {particle_output_file}")
+
+    with open(centroid_output_file, 'wb') as f:
+        pickle.dump(centroid_history, f)
+    print(f"Centroid history saved to {centroid_output_file}")
+
+    profiler.disable()
+    stats = pstats.Stats(profiler)
+    stats.sort_stats(pstats.SortKey.TIME)
+    stats.print_stats()
