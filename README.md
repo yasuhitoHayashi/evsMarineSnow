@@ -12,7 +12,7 @@ Output1: Plot tracked coordinates and clouds
 
 Output2: plot event timecourse and warped cluster
 
-<img width="1112" alt="スクリーンショット 2024-08-05 23 40 34" src="https://github.com/user-attachments/assets/2417de84-ab3a-44cb-a43d-5aaceb627c70">
+<img width="1312" alt="スクリーンショット 2024-08-31 20 28 52" src="https://github.com/user-attachments/assets/b6307393-3733-4ce5-af1c-54049c864e71">
 
 Output3: Plot warped clusters and fitted ellipse
 
