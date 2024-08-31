@@ -5,64 +5,80 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from sklearn.decomposition import PCA
 
-# Load the particle data to access their events
+# 投影のための関数（視点ベクトルに平行に移動させてからXY平面に投影）
+def project_parallel_to_view_vector(points, view_vector):
+    # 視点ベクトルを正規化
+    view_vector = view_vector / np.linalg.norm(view_vector)
+    
+    # 各点を視点ベクトルに平行に移動させるための係数を計算
+    t = -points[:, 2] / view_vector[2]
+    
+    # 視点ベクトル方向に平行移動
+    projection = points + np.outer(t, view_vector)
+    
+    # Z成分を0にする（XY平面に投影）
+    projection[:, 2] = 0
+    
+    return projection
+
+# パーティクルデータをロード
 particle_output_file = 'particle_tracking_results.pkl'
 
 with open(particle_output_file, 'rb') as f:
     particle_data = pickle.load(f)
 
-# Define a mass threshold for filtering particles
-mass_threshold = 1000  # You can adjust this threshold
+# フィルタリングのための質量の閾値を設定
+mass_threshold = 1000  # 必要に応じて調整
 
-# Define time bin size in microseconds (1 ms = 1000 μs)
-time_bin_size = 1000
+# 時間ビンのサイズを設定 (マイクロ秒単位)
+time_bin_size = 1000  # 1ミリ秒
 
-# Define window size for smoothing (e.g., 10 milliseconds)
-smoothing_window_size = 10  # This should be in terms of the number of bins
+# スムージング用のウィンドウサイズを設定 (例: 10ミリ秒)
+smoothing_window_size = 10  # ビンの数で設定
 
-# Process each particle
+# 各パーティクルを処理
 for particle_id, particle_info in particle_data.items():
-    # Check if the particle's mass is above the threshold
+    # パーティクルの質量が閾値以上かを確認
     if particle_info['mass'] >= mass_threshold:
-        # Extract events for the particle
+        # パーティクルのイベントを抽出
         event_coords = np.array(particle_info['events'])
         
-        # Convert event times to milliseconds
+        # イベント時間をミリ秒に変換
         event_times = event_coords[:, 2] * 1e-3
         
-        # Find the range of times
+        # 時間の範囲を取得
         min_time, max_time = np.min(event_times), np.max(event_times)
         
-        # Create time bins
+        # 時間ビンを作成
         time_bins = np.arange(min_time, max_time + time_bin_size * 1e-3, time_bin_size * 1e-3)
         
-        # Count events in each time bin
+        # 各時間ビン内のイベント数をカウント
         event_counts, _ = np.histogram(event_times, bins=time_bins)
         
-        # Apply smoothing using a moving average
+        # 移動平均を使用してスムージング
         smoothed_event_counts = np.convolve(event_counts, np.ones(smoothing_window_size) / smoothing_window_size, mode='same')
         
-        # Fit a polynomial to the smoothed event counts
+        # スムージングされたイベント数にポリフィットを適用
         try:
-            poly_coeff = np.polyfit(time_bins[:-1], smoothed_event_counts, deg=5)  # Polynomial of degree 5
+            poly_coeff = np.polyfit(time_bins[:-1], smoothed_event_counts, deg=5)  # 5次の多項式
             poly_fit = np.polyval(poly_coeff, time_bins[:-1])
         except Exception as e:
-            print(f"Failed to fit a polynomial for particle {particle_id}: {e}")
+            print(f"Failed to fit polynomial for particle {particle_id}: {e}")
             continue
         
-        # Identify the peak of the polynomial fit
+        # 多項式フィットのピークを特定
         peak_index = np.argmax(poly_fit)
         peak_time = time_bins[peak_index]
         
-        # Highlight a 10 ms window centered around the polynomial peak
-        window_start = peak_time - 5  # Start 5 ms before the peak
-        window_end = peak_time + 5    # End 5 ms after the peak
+        # 多項式ピークを中心とする10ミリ秒のウィンドウをハイライト
+        window_start = peak_time - 5  # ピークの5ミリ秒前から
+        window_end = peak_time + 5    # ピークの5ミリ秒後まで
 
-        # Extract events within the highlighted window
+        # ハイライトされたウィンドウ内のイベントを抽出
         window_mask = (event_times >= window_start) & (event_times <= window_end)
         window_events = event_coords[window_mask]
 
-        # Extract events for the 2 ms before and after
+        # 前後2ミリ秒のイベントを抽出
         pre_window_mask = (event_times >= window_start - 2) & (event_times < window_start)
         post_window_mask = (event_times > window_end) & (event_times <= window_end + 2)
         
@@ -73,122 +89,105 @@ for particle_id, particle_info in particle_data.items():
             print(f"Not enough events in pre/post window for particle {particle_id}")
             continue
 
-        # Calculate centroids
+        # セントロイドを計算
         pre_centroid = pre_window_events[:, :3].mean(axis=0)
         post_centroid = post_window_events[:, :3].mean(axis=0)
 
-        # Calculate the direction vector from pre to post centroid
+        # 前後のセントロイド間の方向ベクトルを計算
         direction_vector = post_centroid - pre_centroid
-        direction_vector /= np.linalg.norm(direction_vector)  # Normalize
+        direction_vector /= np.linalg.norm(direction_vector)  # 正規化
 
-        # Rotate the 10 ms window events to align with the direction vector
-        # For simplicity, we can assume the direction is along the Z-axis
-        # Compute rotation matrix to align the vector to the Z-axis
-        z_vector = np.array([0, 0, 1])
-        rotation_axis = np.cross(direction_vector, z_vector)
-        rotation_angle = np.arccos(np.dot(direction_vector, z_vector))
+        # 投影処理
+        projected_points_original = project_parallel_to_view_vector(window_events, direction_vector)
 
-        if np.linalg.norm(rotation_axis) != 0:
-            # Normalize rotation axis
-            rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
+        # 元のXY平面にそのまま投影（Z成分を無視）
+        projected_points_xy = window_events[:, :2]
 
-            # Create the rotation matrix
-            cos_angle = np.cos(rotation_angle)
-            sin_angle = np.sin(rotation_angle)
-            ux, uy, uz = rotation_axis
-            rotation_matrix = np.array([
-                [cos_angle + ux*ux*(1-cos_angle), ux*uy*(1-cos_angle) - uz*sin_angle, ux*uz*(1-cos_angle) + uy*sin_angle],
-                [uy*ux*(1-cos_angle) + uz*sin_angle, cos_angle + uy*uy*(1-cos_angle), uy*uz*(1-cos_angle) - ux*sin_angle],
-                [uz*ux*(1-cos_angle) - uy*sin_angle, uz*uy*(1-cos_angle) + ux*sin_angle, cos_angle + uz*uz*(1-cos_angle)]
-            ])
+        # 可視化
+        fig = plt.figure(figsize=(12, 9))
 
-            # Rotate the window events
-            rotated_window_events = np.dot(window_events, rotation_matrix.T)
-        else:
-            # If the rotation axis is zero, no rotation is needed
-            rotated_window_events = window_events
+        # イベント数の時間変化とポリフィットのプロット
+        ax1 = fig.add_subplot(221)
+        ax1.plot(time_bins[:-1], smoothed_event_counts, label='Smoothed Event Count', linewidth=2)
+        ax1.plot(time_bins[:-1], poly_fit, label='Polynomial Fit', linestyle='--')
+        ax1.axvspan(window_start, window_end, color='red', alpha=0.3, label='Peak 10ms Window')
+        ax1.set_xlabel('Time (ms)')
+        ax1.set_ylabel('Event Count')
+        ax1.set_title(f'Event Count Over Time for Particle {particle_id}')
+        ax1.legend()
+        ax1.grid(True)
 
-        # Project the rotated events onto the XY plane by ignoring Z-component
-        projected_points_rotated = rotated_window_events[:, :2]
-
-        # Fit an ellipse using PCA for the rotated data
-        pca_rotated = PCA(n_components=2)
-        pca_rotated.fit(projected_points_rotated)
-        center_rotated = pca_rotated.mean_
-        width_rotated, height_rotated = 4 * np.sqrt(pca_rotated.explained_variance_)  # Scale factor increased to 4
-        angle_rotated = np.degrees(np.arctan2(*pca_rotated.components_[0][::-1]))
-        
-        # Calculate area of the ellipse for rotated data
-        semi_major_axis_rotated = width_rotated / 2
-        semi_minor_axis_rotated = height_rotated / 2
-        area_rotated = np.pi * semi_major_axis_rotated * semi_minor_axis_rotated
-
-        # Project the original (non-rotated) events onto the XY plane
-        projected_points_original = window_events[:, :2]
-
-        # Fit an ellipse using PCA for the original data
-        pca_original = PCA(n_components=2)
-        pca_original.fit(projected_points_original)
-        center_original = pca_original.mean_
-        width_original, height_original = 4 * np.sqrt(pca_original.explained_variance_)
-        angle_original = np.degrees(np.arctan2(*pca_original.components_[0][::-1]))
-
-        # Calculate area of the ellipse for original data
-        semi_major_axis_original = width_original / 2
-        semi_minor_axis_original = height_original / 2
-        area_original = np.pi * semi_major_axis_original * semi_minor_axis_original
-
-        # Plot the results
-        plt.figure(figsize=(12, 8))
-        
-        # First subplot: smoothed event counts and polynomial fit
-        plt.subplot(3, 1, 1)
-        plt.plot(time_bins[:-1], smoothed_event_counts, label='Smoothed Event Count', linewidth=2)
-        plt.plot(time_bins[:-1], poly_fit, label='Polynomial Fit', linestyle='--')
-        plt.axvspan(window_start, window_end, color='red', alpha=0.3, label='Peak 10 ms Window')
-        plt.xlabel('Time (milliseconds)')
-        plt.ylabel('Number of Events')
-        plt.title(f'Event Count over Time for Particle {particle_id}')
-        plt.legend()
-        plt.grid(True)
-
-        # Second subplot: 3D scatter plot of events
-        ax1 = plt.subplot(3, 2, 3, projection='3d')
-        ax1.scatter(window_events[:, 0], window_events[:, 1], window_events[:, 2], c='b', marker='o')
-        ax1.set_title('3D Event Distribution in Peak Window')
-        ax1.set_xlabel('X')
-        ax1.set_ylabel('Y')
-        ax1.set_zlabel('Time (ms)')
-
-        # Third subplot: 2D projection with ellipse fit for original events
-        ax2 = plt.subplot(3, 2, 5)
-        ax2.scatter(projected_points_original[:, 0], projected_points_original[:, 1], c='r', marker='o')
-
-        # Add the ellipse patch for original data
-        ellipse_original = Ellipse(xy=center_original, width=width_original, height=height_original, angle=angle_original, edgecolor='green', facecolor='none', linestyle='--', linewidth=2)
-        ax2.add_patch(ellipse_original)
-        ax2.set_xlim([projected_points_original[:, 0].min() - 10, projected_points_original[:, 0].max() + 10])
-        ax2.set_ylim([projected_points_original[:, 1].min() - 10, projected_points_original[:, 1].max() + 10])
-        ax2.set_title('Original XY Projection')
+        # 3次元散布図のプロット
+        ax2 = fig.add_subplot(222, projection='3d')
+        ax2.scatter(window_events[:, 0], window_events[:, 1], window_events[:, 2], color='b', label='Original Events')
+        ax2.set_title('3D Event Distribution in Peak Window')
         ax2.set_xlabel('X')
         ax2.set_ylabel('Y')
-        ax2.axis('equal')
-        ax2.text(0.05, 0.95, f'Area: {area_original:.2f}', transform=ax2.transAxes, fontsize=10, verticalalignment='top')
+        ax2.set_zlabel('Time (ms)')
 
-        # Fourth subplot: 2D projection with ellipse fit for rotated events
-        ax3 = plt.subplot(3, 2, 6)
-        ax3.scatter(projected_points_rotated[:, 0], projected_points_rotated[:, 1], c='r', marker='o')
+        # 投影点のプロットを追加
+        ax2.scatter(projected_points_original[:, 0], projected_points_original[:, 1], projected_points_original[:, 2], color='r', label='Projected Events')
+        ax2.legend()
 
-        # Add the ellipse patch for rotated data
-        ellipse_rotated = Ellipse(xy=center_rotated, width=width_rotated, height=height_rotated, angle=angle_rotated, edgecolor='blue', facecolor='none', linestyle='--', linewidth=2)
-        ax3.add_patch(ellipse_rotated)
-        ax3.set_xlim([projected_points_rotated[:, 0].min() - 10, projected_points_rotated[:, 0].max() + 10])
-        ax3.set_ylim([projected_points_rotated[:, 1].min() - 10, projected_points_rotated[:, 1].max() + 10])
-        ax3.set_title('Rotated Projection Aligned with Centroid Line')
+        # 元のXY平面への投影プロット
+        ax3 = fig.add_subplot(223)
+        ax3.scatter(projected_points_xy[:, 0], projected_points_xy[:, 1], color='g', label='Original XY Projection')
+
+        # PCAを使用して楕円をフィット（元のXY投影）
+        pca_xy = PCA(n_components=2)
+        pca_xy.fit(projected_points_xy)
+        center_xy = pca_xy.mean_
+        width_xy, height_xy = 4 * np.sqrt(pca_xy.explained_variance_)
+        angle_xy = np.degrees(np.arctan2(*pca_xy.components_[0][::-1]))
+
+        # 楕円の描画（元のXY投影）
+        ellipse_xy = Ellipse(xy=center_xy, width=width_xy, height=height_xy, angle=angle_xy, edgecolor='blue', facecolor='none', linestyle='--', linewidth=2)
+        ax3.add_patch(ellipse_xy)
+        ax3.set_xlim([projected_points_xy[:, 0].min() - 10, projected_points_xy[:, 0].max() + 10])
+        ax3.set_ylim([projected_points_xy[:, 1].min() - 10, projected_points_xy[:, 1].max() + 10])
+        ax3.set_title('Original XY Projection')
+        ax3.set_xlabel('X')
+        ax3.set_ylabel('Y')
         ax3.axis('equal')
-        #ax3.set_xticklabels([])  # Remove x-axis labels
-        #ax3.set_yticklabels([])  # Remove y-axis labels
-        ax3.text(0.05, 0.95, f'Area: {area_rotated:.2f}', transform=ax3.transAxes, fontsize=10, verticalalignment='top')
+        ax3.legend()
+
+        # 元のXY投影の楕円面積を計算
+        semi_major_axis_xy = width_xy / 2
+        semi_minor_axis_xy = height_xy / 2
+        area_xy = np.pi * semi_major_axis_xy * semi_minor_axis_xy
+
+        # 面積をプロットに表示
+        ax3.text(0.05, 0.95, f'Area: {area_xy:.2f} units²', transform=ax3.transAxes, fontsize=10, verticalalignment='top')
+
+        # 視点ベクトルに基づく投影の2次元プロット
+        ax4 = fig.add_subplot(224)
+        ax4.scatter(projected_points_original[:, 0], projected_points_original[:, 1], color='r', label='Projected with View Vector')
+
+        # PCAを使用して楕円をフィット（視点ベクトルによる投影）
+        pca_projected = PCA(n_components=2)
+        pca_projected.fit(projected_points_original[:, :2])
+        center_projected = pca_projected.mean_
+        width_projected, height_projected = 4 * np.sqrt(pca_projected.explained_variance_)
+        angle_projected = np.degrees(np.arctan2(*pca_projected.components_[0][::-1]))
+
+        # 楕円の描画（視点ベクトルによる投影）
+        ellipse_projected = Ellipse(xy=center_projected, width=width_projected, height=height_projected, angle=angle_projected, edgecolor='blue', facecolor='none', linestyle='--', linewidth=2)
+        ax4.add_patch(ellipse_projected)
+        ax4.set_xlim([projected_points_original[:, 0].min() - 10, projected_points_original[:, 0].max() + 10])
+        ax4.set_ylim([projected_points_original[:, 1].min() - 10, projected_points_original[:, 1].max() + 10])
+        ax4.set_title('Projected XY Plane using View Vector')
+        ax4.set_xlabel('X')
+        ax4.set_ylabel('Y')
+        ax4.axis('equal')
+        ax4.legend()
+
+        # 視点ベクトル投影の楕円面積を計算
+        semi_major_axis_projected = width_projected / 2
+        semi_minor_axis_projected = height_projected / 2
+        area_projected = np.pi * semi_major_axis_projected * semi_minor_axis_projected
+
+        # 面積をプロットに表示
+        ax4.text(0.05, 0.95, f'Area: {area_projected:.2f} units²', transform=ax4.transAxes, fontsize=10, verticalalignment='top')
 
         plt.tight_layout()
         plt.show()
