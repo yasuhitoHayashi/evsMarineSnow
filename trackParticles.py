@@ -23,6 +23,8 @@ data = pd.read_csv(file_path, header=None, names=['x', 'y', 'polarity', 'time'])
 # Use only data with polarity 1
 data_filtered = data[data['polarity'] == 1].copy()
 print(f"Number of data points after filtering: {len(data_filtered)}")
+print(data_filtered.head(10))
+print(data_filtered.tail(10))
 
 # Class to manage particles
 class Particle:
@@ -129,4 +131,4 @@ if __name__ == "__main__":
     profiler.disable()
     stats = pstats.Stats(profiler)
     stats.sort_stats(pstats.SortKey.TIME)
-    stats.print_stats()
+    stats.print_stats(10)

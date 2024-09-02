@@ -22,7 +22,7 @@ def project_parallel_to_view_vector(points, view_vector):
     return projection
 
 # パーティクルデータをロード
-particle_output_file = 'particle_tracking_results.pkl'
+particle_output_file = 'particle_tracking_results_potter_suruga_test_short.pkl'
 
 with open(particle_output_file, 'rb') as f:
     particle_data = pickle.load(f)

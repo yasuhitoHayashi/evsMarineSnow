@@ -29,7 +29,12 @@ df = pd.DataFrame(data)
 
 # Filter data to only include events with polarity 1
 data_filtered = df[df['p'] == 1].copy()
+data_filtered = data_filtered.reset_index(drop=True)[1:]
 print(f"Number of data points after filtering: {len(data_filtered)}")
+data_filtered = data_filtered.rename(columns={'p': 'polarity', 'x': 'x', 'y': 'y', 't': 'time'})
+data_filtered = data_filtered[['x', 'y', 'polarity', 'time']].reset_index(drop=True)
+print(data_filtered.head(10))
+print(data_filtered.tail(10))
 
 # Class to manage particles
 class Particle:
@@ -58,8 +63,8 @@ class Particle:
             self.centroid_history.append((time, self.centroid.copy()))
 
     def is_active(self, current_time, m_threshold):
-        # A particle is inactive if no events in 5 ms and mass < M
-        if self.events and self.events[-1][2] < current_time - 5000:
+        # A particle is inactive if no events in 2 ms and mass < M
+        if self.events and self.events[-1][2] < current_time - 2000:
             return self.mass > m_threshold
         return True
 
@@ -69,19 +74,20 @@ def calculate_distance_sq(x1, y1, x2, y2):
     return (x1 - x2) ** 2 + (y1 - y2) ** 2
 
 # Particle tracking
-def track_particles(data, spatial_radius=6, time_window=50000, m_threshold=500):
+def track_particles(data, spatial_radius=6, time_window=2000, m_threshold=500):
     particles = {}
     particle_id_counter = 0
     active_particles = []
 
     spatial_radius_squared = spatial_radius ** 2  # Precompute for efficiency
 
-    for event in tqdm(data.itertuples(index=False), total=len(data), desc="Processing events"):
-        x, y, time = event.x, event.y, event.t
+    for event in tqdm(data.itertuples(index=False, name='Event'), total=len(data), desc="Processing events"):
+        x, y, time = event.x, event.y, event.time
 
         # Check for nearby active particles
         nearby_particle_id = None
         for particle in active_particles:
+            # Calculate spatial distance squared for efficiency
             dist_sq = calculate_distance_sq(particle.centroid[0], particle.centroid[1], x, y)
             if dist_sq <= spatial_radius_squared and particle.events[-1][2] >= time - time_window:
                 nearby_particle_id = particle.particle_id
