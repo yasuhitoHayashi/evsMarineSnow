@@ -54,7 +54,7 @@ class Particle:
 
     def is_active(self, current_time, m_threshold):
         # A particle is inactive if no events in 2 ms and mass < M
-        if self.events and self.events[-1][2] < current_time - 2000:
+        if self.events and self.events[-1][2] < current_time - 3000:
             return self.mass > m_threshold
         return True
 
@@ -63,13 +63,9 @@ class Particle:
 def calculate_distance_sq(x1, y1, x2, y2):
     return (x1 - x2) ** 2 + (y1 - y2) ** 2
 
-# JIT compile distance calculation
-@njit
-def calculate_distance_sq(x1, y1, x2, y2):
-    return (x1 - x2) ** 2 + (y1 - y2) ** 2
 
 # Particle tracking with handling for multiple particles within the spatial radius
-def track_particles(data, spatial_radius=6, time_window=2000, m_threshold=1000, overlap_threshold=100):
+def track_particles(data, spatial_radius=6, time_window=3000, m_threshold=1000, overlap_threshold=100):
     particles = {}
     particle_id_counter = 0
     active_particles = []

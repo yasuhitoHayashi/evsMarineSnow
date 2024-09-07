@@ -60,26 +60,28 @@ class Particle:
 
 # JIT compile distance calculation
 @njit
-def calculate_distance_sq(x1, y1, x2, y2):
-    return (x1 - x2) ** 2 + (y1 - y2) ** 2
+def gaussian_distance(x1, y1, t1, x2, y2, t2, sigma_x=8, sigma_t=2000):
+    spatial_distance_sq = (x1 - x2) ** 2 + (y1 - y2) ** 2
+    time_distance_sq = (t1 - t2) ** 2
+
+    # Gaussian similarity based on spatial and temporal distance
+    gaussian_value = np.exp(-spatial_distance_sq / (2 * sigma_x**2) - time_distance_sq / (2 * sigma_t**2))
+    return gaussian_value
 
 # Particle tracking
-def track_particles(data, spatial_radius=8, time_window=2000, m_threshold=500):
+def track_particles(data, spatial_radius=8, time_window=2000, m_threshold=500, gaussian_threshold=0.5):
     particles = {}
     particle_id_counter = 0
     active_particles = []
 
-    spatial_radius_squared = spatial_radius ** 2  # Precompute for efficiency
-
     for event in tqdm(data.itertuples(index=False, name='Event'), total=len(data), desc="Processing events"):
         x, y, time = event.x, event.y, event.time
 
-        # Check for nearby active particles
+        # Check for nearby active particles based on Gaussian distance
         nearby_particle_id = None
         for particle in active_particles:
-            # Calculate spatial distance squared for efficiency
-            dist_sq = calculate_distance_sq(particle.centroid[0], particle.centroid[1], x, y)
-            if dist_sq <= spatial_radius_squared and particle.events[-1][2] >= time - time_window:
+            gaussian_value = gaussian_distance(particle.centroid[0], particle.centroid[1], particle.events[-1][2], x, y, time)
+            if gaussian_value >= gaussian_threshold:
                 nearby_particle_id = particle.particle_id
                 break
 
