@@ -20,7 +20,7 @@ with open(particle_output_file, 'rb') as f:
 mass_threshold = 500  # You can adjust this threshold
 
 # Define a sampling ratio for event downsampling
-sampling_ratio = 0.01  # Use 10% of the events for plotting
+sampling_ratio = 0  # Use 10% of the events for plotting
 
 # Flag to determine whether to plot individual events
 plot_events = True  # Set to False to skip plotting events
