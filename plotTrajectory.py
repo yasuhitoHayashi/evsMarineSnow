@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 # Load the particle data from the pickle file
-particle_output_file = 'particle_tracking_results_suruga_test_short.pkl'
+particle_output_file = '/Users/yasu-air/yhLab/KS24-16/cam2/20240822_160054.pkl'
 #particle_output_file = 'particle_tracking_results_recording_2024-04-25_10-43-50.pkl'
 
 with open(particle_output_file, 'rb') as f:
@@ -15,7 +15,7 @@ with open(particle_output_file, 'rb') as f:
 event_threshold = 1000  # You can adjust this threshold
 
 # Define a sampling ratio for event downsampling
-sampling_ratio = 0  # Use 10% of the events for plotting
+sampling_ratio = 0.01  # Use 10% of the events for plotting
 
 # Flag to determine whether to plot individual events
 plot_events = False  # Set to False to skip plotting events

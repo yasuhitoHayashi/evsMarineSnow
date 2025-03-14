@@ -5,6 +5,7 @@
 #include <tuple>
 #include <cmath>
 #include <algorithm>
+#include <limits>  // for std::numeric_limits
 
 // Struct to hold the result for each particle, including centroid history
 struct ParticleResult {
@@ -26,6 +27,29 @@ public:
         events.push_back(std::make_tuple(x, y, time));
         recent_events.push_back(std::make_tuple(x, y, time));  // Add to recent events as well
         centroid_history.push_back(std::make_tuple(time, centroid_x, centroid_y));
+    }
+
+    // マージ用の関数
+    void merge(const Particle& other) {
+        // 他の粒子のイベントを全て追加
+        for (const auto& event : other.events) {
+            events.push_back(event);
+            recent_events.push_back(event);  // recent_eventsにも追加
+        }
+
+        // 質量の統合
+        mass += other.mass;
+
+        // 重心の再計算（質量で重み付けした座標平均）
+        double total_mass = mass + other.mass;
+        centroid_x = (centroid_x * mass + other.centroid_x * other.mass) / total_mass;
+        centroid_y = (centroid_y * mass + other.centroid_y * other.mass) / total_mass;
+
+        // 重心の履歴を更新
+        if (!recent_events.empty()) {
+            float time = std::get<2>(recent_events.back());
+            centroid_history.push_back(std::make_tuple(time, centroid_x, centroid_y));
+        }
     }
 
     void add_event(int x, int y, float time) {
@@ -95,9 +119,12 @@ std::vector<ParticleResult> track_particles_cpp(const std::vector<std::tuple<int
         float time = std::get<2>(event);
 
         bool found_overlap = false;
+        size_t overlapping_particle_index = std::numeric_limits<size_t>::max();  // 修正: size_tに変更
 
         // Iterate over each particle to check if the event belongs to one
-        for (auto& particle : particles) {
+        for (size_t i = 0; i < particles.size(); ++i) {  // 修正: size_tに変更
+            Particle& particle = particles[i];
+
             // Check all recent events within the last 2000us
             for (const auto& recent_event : particle.recent_events) {
                 // ガウス分布に基づいた距離を計算
@@ -107,10 +134,10 @@ std::vector<ParticleResult> track_particles_cpp(const std::vector<std::tuple<int
                 if (gaussian_score >= gaussian_threshold) {
                     particle.add_event(x, y, time);
                     found_overlap = true;
+                    overlapping_particle_index = i;
                     break;
                 }
             }
-            // If overlap was found with recent events, stop checking other particles
             if (found_overlap) {
                 break;
             }
@@ -121,6 +148,32 @@ std::vector<ParticleResult> track_particles_cpp(const std::vector<std::tuple<int
             particle_id_counter++;
             Particle new_particle(particle_id_counter, x, y, time);
             particles.push_back(new_particle);
+        } else if (overlapping_particle_index != std::numeric_limits<size_t>::max()) {
+            // If another overlapping particle is found, merge them
+            for (size_t i = 0; i < particles.size(); ++i) {
+                if (i != overlapping_particle_index) {
+                    Particle& particle = particles[i];
+
+                    // ガウス分布に基づく距離計算で、同じ条件で2つの粒子が重なっているかチェック
+                    for (const auto& recent_event : particle.recent_events) {
+                        double gaussian_score = gaussian_distance(
+                            std::get<0>(particles[overlapping_particle_index].recent_events.back()),
+                            std::get<1>(particles[overlapping_particle_index].recent_events.back()),
+                            std::get<2>(particles[overlapping_particle_index].recent_events.back()),
+                            std::get<0>(recent_event),
+                            std::get<1>(recent_event),
+                            std::get<2>(recent_event),
+                            sigma_x, sigma_t);
+
+                        if (gaussian_score >= gaussian_threshold) {
+                            // Merge the particles
+                            particles[overlapping_particle_index].merge(particle);
+                            particles.erase(particles.begin() + i);  // Merge後、消す
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         // Remove inactive particles based on time and mass
