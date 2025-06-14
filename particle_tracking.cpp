@@ -101,14 +101,17 @@ public:
     }
 };
 
-// ガウス分布による距離計算
-double gaussian_distance(int x1, int y1, float t1, int x2, int y2, float t2, double sigma_x, double sigma_t) {
-    double spatial_distance_sq = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);  // 空間的な距離の2乗
-    double time_distance_sq = (t1 - t2) * (t1 - t2);  // 時間的な距離の2乗
-    return std::exp(-spatial_distance_sq / (2 * sigma_x * sigma_x) - time_distance_sq / (2 * sigma_t * sigma_t));  // ガウス分布に基づくスコア
+// トップハット分布による距離判定
+bool tophat_overlap(int x1, int y1, float t1, int x2, int y2, float t2, double radius_x, double radius_t) {
+    double spatial_distance_sq = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+    double time_distance = std::abs(t1 - t2);
+    return spatial_distance_sq <= radius_x * radius_x && time_distance <= radius_t;
 }
 
-std::vector<ParticleResult> track_particles_cpp(const std::vector<std::tuple<int, int, float>>& data, double sigma_x, double sigma_t, double gaussian_threshold, int m_threshold) {
+std::vector<ParticleResult> track_particles_cpp(const std::vector<std::tuple<int, int, float>>& data,
+                                                double sigma_x, double sigma_t,
+                                                double /*gaussian_threshold*/,
+                                                int m_threshold) {
     std::vector<Particle> particles;
     int particle_id_counter = 0;
 
@@ -127,11 +130,12 @@ std::vector<ParticleResult> track_particles_cpp(const std::vector<std::tuple<int
 
             // Check all recent events within the last 2000us
             for (const auto& recent_event : particle.recent_events) {
-                // ガウス分布に基づいた距離を計算
-                double gaussian_score = gaussian_distance(x, y, time, std::get<0>(recent_event), std::get<1>(recent_event), std::get<2>(recent_event), sigma_x, sigma_t);
-
-                // スコアが閾値を超えた場合にイベントを追加
-                if (gaussian_score >= gaussian_threshold) {
+                // トップハット分布による距離判定
+                if (tophat_overlap(x, y, time,
+                                   std::get<0>(recent_event),
+                                   std::get<1>(recent_event),
+                                   std::get<2>(recent_event),
+                                   sigma_x, sigma_t)) {
                     particle.add_event(x, y, time);
                     found_overlap = true;
                     overlapping_particle_index = i;
@@ -154,18 +158,16 @@ std::vector<ParticleResult> track_particles_cpp(const std::vector<std::tuple<int
                 if (i != overlapping_particle_index) {
                     Particle& particle = particles[i];
 
-                    // ガウス分布に基づく距離計算で、同じ条件で2つの粒子が重なっているかチェック
+                    // トップハット分布に基づく距離計算で、同じ条件で2つの粒子が重なっているかチェック
                     for (const auto& recent_event : particle.recent_events) {
-                        double gaussian_score = gaussian_distance(
-                            std::get<0>(particles[overlapping_particle_index].recent_events.back()),
-                            std::get<1>(particles[overlapping_particle_index].recent_events.back()),
-                            std::get<2>(particles[overlapping_particle_index].recent_events.back()),
-                            std::get<0>(recent_event),
-                            std::get<1>(recent_event),
-                            std::get<2>(recent_event),
-                            sigma_x, sigma_t);
-
-                        if (gaussian_score >= gaussian_threshold) {
+                        if (tophat_overlap(
+                                std::get<0>(particles[overlapping_particle_index].recent_events.back()),
+                                std::get<1>(particles[overlapping_particle_index].recent_events.back()),
+                                std::get<2>(particles[overlapping_particle_index].recent_events.back()),
+                                std::get<0>(recent_event),
+                                std::get<1>(recent_event),
+                                std::get<2>(recent_event),
+                                sigma_x, sigma_t)) {
                             // Merge the particles
                             particles[overlapping_particle_index].merge(particle);
                             particles.erase(particles.begin() + i);  // Merge後、消す
