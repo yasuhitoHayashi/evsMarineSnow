@@ -29,15 +29,15 @@ data_list = [tuple(row) for row in data_filtered[['x', 'y', 'time']].itertuples(
 print(f"Number of data points after filtering: {len(data_filtered)}")
 
 # Set the parameters for the particle tracking function
-sigma_x = 9.0  # 空間的なスケールパラメータ, 精子は6, マリンスノー9
-sigma_t = 10000.0  # 時間的なスケールパラメータ, 精子は10000,
-gaussian_threshold = 0.8  # ガウス分布による閾値, 0.8くらい
+m_sigma_x = 9.0  # トップハット判定の空間半径
+m_sigma_t = 10000.0  # トップハット判定の時間半径
+gaussian_threshold = 0.0  # トップハットでは未使用
 m_threshold = 100  # 質量のしきい値, 100くらい
 
 # Try to run the C++ particle tracking function and catch any exceptions
 try:
-    # C++の関数を呼び出す (spatial_radius の代わりに sigma_x, sigma_t, gaussian_threshold を使用)
-    particles = track_particles_cpp(data_list, sigma_x, sigma_t, gaussian_threshold, m_threshold)
+    # C++の関数を呼び出す
+    particles = track_particles_cpp(data_list, m_sigma_x, m_sigma_t, gaussian_threshold, m_threshold)
 
     # Prepare the output data for saving
     particle_output = {}
