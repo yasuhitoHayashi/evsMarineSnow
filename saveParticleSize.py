@@ -12,21 +12,32 @@ parser = argparse.ArgumentParser(description='Particle tracking script with spli
 parser.add_argument('-i', '--input', required=True, help='Path to the input pickle file.')
 args = parser.parse_args()
 
-# 投影のための関数（視点ベクトルに平行に移動させてからXY平面に投影）
-def project_parallel_to_view_vector(points, view_vector):
-    # 視点ベクトルを正規化
-    view_vector = view_vector / np.linalg.norm(view_vector)
-    
-    # 各点を視点ベクトルに平行に移動させるための係数を計算
-    t = -points[:, 2] / view_vector[2]
-    
-    # 視点ベクトル方向に平行移動
-    projection = points + np.outer(t, view_vector)
-    
-    # Z成分を0にする（XY平面に投影）
-    projection[:, 2] = 0
-    
-    return projection
+
+# ---- New general warp utilities ----
+def estimate_velocity(centroid_history):
+    """Estimate average (vx, vy) from centroid history."""
+    history = np.array(centroid_history)
+    if history.shape[0] < 2:
+        return np.array([0.0, 0.0])
+    dt = np.diff(history[:, 0])
+    dx = np.diff(history[:, 1])
+    dy = np.diff(history[:, 2])
+    valid = dt != 0
+    if not np.any(valid):
+        return np.array([0.0, 0.0])
+    vx = np.mean(dx[valid] / dt[valid])
+    vy = np.mean(dy[valid] / dt[valid])
+    return np.array([vx, vy])
+
+
+def warp_events(events, velocity, t_ref):
+    """Warp events (x, y, t) to reference time using estimated velocity."""
+    warped = events.copy().astype(float)
+    dt = t_ref - warped[:, 2]
+    warped[:, 0] += velocity[0] * dt
+    warped[:, 1] += velocity[1] * dt
+    warped[:, 2] = t_ref
+    return warped
 
 # 時間ビンのサイズを設定 (マイクロ秒単位)
 time_bin_size = 1000  # 1ミリ秒
@@ -115,16 +126,13 @@ with open(output_file, mode='w', newline='') as file:
             print(f"Not enough events in pre/post window for particle {particle_id}")
             continue
 
-        # セントロイドを計算
-        pre_centroid = pre_window_events[:, :3].mean(axis=0)
-        post_centroid = post_window_events[:, :3].mean(axis=0)
+        # 速度を推定し、イベントをピーク時刻へワープ
+        velocity = estimate_velocity(centroid_history)
+        warped_events = warp_events(window_events, velocity, peak_time * 1000)
 
-        # 前後のセントロイド間の方向ベクトルを計算
-        direction_vector = post_centroid - pre_centroid
-        direction_vector /= np.linalg.norm(direction_vector)  # 正規化
-
-        # 投影処理
-        projected_points_original = project_parallel_to_view_vector(window_events, direction_vector)
+        # ワープ後は時間軸を無視してXY平面に投影
+        projected_points_original = warped_events.copy()
+        projected_points_original[:, 2] = 0
 
         # 視点ベクトルなしでXY平面に投影
         projected_points_noWarp = window_events.copy()
