@@ -4,28 +4,46 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 import csv
 import argparse
-import matplotlib.pyplot as plt  # pltからカラーマップを取得
+import warnings
 
 
 # Argument parser for command line arguments
 parser = argparse.ArgumentParser(description='Particle tracking script with splitting.')
 parser.add_argument('-i', '--input', required=True, help='Path to the input pickle file.')
-args = parser.parse_args()
+
+# このスクリプトをモジュールとしてインポートした際に実行されるのを防ぐため、
+# 引数の解析とメイン処理を関数にまとめる
+
 
 # 投影のための関数（視点ベクトルに平行に移動させてからXY平面に投影）
 def project_parallel_to_view_vector(points, view_vector):
-    # 視点ベクトルを正規化
-    view_vector = view_vector / np.linalg.norm(view_vector)
-    
+    """Project events onto the XY plane along a view vector.
+
+    If the view vector is ill-defined (zero magnitude or nearly zero z-component),
+    a warning is issued and the points are returned with their z values set to 0
+    without additional warping.
+    """
+    norm = np.linalg.norm(view_vector)
+    if norm == 0 or abs(view_vector[2]) < 1e-8:
+        warnings.warn(
+            "View vector magnitude is zero or z component too small; skipping projection",
+            UserWarning,
+        )
+        projection = points.copy()
+        projection[:, 2] = 0
+        return projection
+
+    view_vector = view_vector / norm
+
     # 各点を視点ベクトルに平行に移動させるための係数を計算
     t = -points[:, 2] / view_vector[2]
-    
+
     # 視点ベクトル方向に平行移動
     projection = points + np.outer(t, view_vector)
-    
+
     # Z成分を0にする（XY平面に投影）
     projection[:, 2] = 0
-    
+
     return projection
 
 # 時間ビンのサイズを設定 (マイクロ秒単位)
@@ -35,39 +53,39 @@ time_bin_size = 1000  # 1ミリ秒
 smoothing_window_size = 10  # ビンの数で設定
 
 
-# パーティクルデータをロード
-file_path = args.input  # コマンドライン引数で指定されたファイルパスを使用
+def process_file(file_path: str) -> None:
+    """Process a single pickle file and save particle size information."""
 
-with open(file_path, 'rb') as f:
-    particle_data = pickle.load(f)
+    with open(file_path, 'rb') as f:
+        particle_data = pickle.load(f)
 
-# 1280x720の黒い背景画像を作成
-# 高解像度の1280x720の黒い背景画像を作成 (dpi=300で解像度向上)
-fig, ax = plt.subplots(figsize=(12.8, 7.2), dpi=300)  # dpiを300に設定
-ax.set_facecolor('black')
+    # 1280x720の黒い背景画像を作成
+    # 高解像度の1280x720の黒い背景画像を作成 (dpi=300で解像度向上)
+    fig, ax = plt.subplots(figsize=(12.8, 7.2), dpi=300)  # dpiを300に設定
+    ax.set_facecolor('black')
 
-# 軸の範囲を設定 (1280x720ピクセルの範囲)
-ax.set_xlim(0, 1280)
-ax.set_ylim(0, 720)
-ax.invert_yaxis()  # 画像のY軸を反転して、通常の画像と同じように上が0、下が720になるように設定
+    # 軸の範囲を設定 (1280x720ピクセルの範囲)
+    ax.set_xlim(0, 1280)
+    ax.set_ylim(0, 720)
+    ax.invert_yaxis()  # 画像のY軸を反転して、通常の画像と同じように上が0、下が720になるように設定
 
-# 出力ファイル名を .pkl ファイルから .csv に変更
-output_file = f'{file_path.split(".pkl")[0]}_noWarp.csv'
+    # 出力ファイル名を .pkl ファイルから .csv に変更
+    output_file = f'{file_path.split(".pkl")[0]}_noWarp.csv'
 
-# CSVヘッダー
-header = ['Particle_ID', 'Projected_Points_Size', 'Major_Axis', 'Minor_Axis','Projected_Points_Size_noWarp','Major_Axis_noWarp','Minor_Axis_noWarp', 'eventCount']
-cmap = plt.get_cmap('hsv', len(particle_data))  # 粒子の数に基づいてカラーマップを作成
+    # CSVヘッダー
+    header = ['Particle_ID', 'Projected_Points_Size', 'Major_Axis', 'Minor_Axis','Projected_Points_Size_noWarp','Major_Axis_noWarp','Minor_Axis_noWarp', 'eventCount']
+    cmap = plt.get_cmap('hsv', len(particle_data))  # 粒子の数に基づいてカラーマップを作成
 
-# 出力ファイルに書き込み開始
-with open(output_file, mode='w', newline='') as file:
-    writer = csv.writer(file)
-    writer.writerow(header)  # ヘッダーを書き込み
+    # 出力ファイルに書き込み開始
+    with open(output_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(header)  # ヘッダーを書き込み
 
-    # 各パーティクルを処理
-    for idx, (particle_id, particle_info) in enumerate(particle_data.items()):
-        # パーティクルのイベントとセントロイド履歴を抽出
-        event_coords = np.array(particle_info['events'])
-        centroid_history = np.array(particle_info['centroid_history'])
+        # 各パーティクルを処理
+        for idx, (particle_id, particle_info) in enumerate(particle_data.items()):
+            # パーティクルのイベントとセントロイド履歴を抽出
+            event_coords = np.array(particle_info['events'])
+            centroid_history = np.array(particle_info['centroid_history'])
 
         # イベント時間をミリ秒に変換
         event_times = event_coords[:, 2] * 1e-3
@@ -139,23 +157,50 @@ with open(output_file, mode='w', newline='') as file:
         area_noWarp = np.pi * semi_major_noWarp * semi_minor_noWarp
         # パーティクルのイベントをプロット
 
-        # PCAを使用して楕円をフィット（視点ベクトルによる投影）
-        pca_projected = PCA(n_components=2)
-        pca_projected.fit(projected_points_original[:, :2])
-        center_projected = pca_projected.mean_
-        width_projected, height_projected = 4 * np.sqrt(pca_projected.explained_variance_)
-        angle_projected = np.degrees(np.arctan2(*pca_projected.components_[0][::-1]))
-        # 視点ベクトル投影の楕円面積を計算
-        semi_major_axis_projected = width_projected / 2
-        semi_minor_axis_projected = height_projected / 2
-        area_projected = np.pi * semi_major_axis_projected * semi_minor_axis_projected
+            # PCAを使用して楕円をフィット（視点ベクトルによる投影）
+            pca_projected = PCA(n_components=2)
+            pca_projected.fit(projected_points_original[:, :2])
+            center_projected = pca_projected.mean_
+            width_projected, height_projected = 4 * np.sqrt(
+                pca_projected.explained_variance_
+            )
+            angle_projected = np.degrees(
+                np.arctan2(*pca_projected.components_[0][::-1])
+            )
 
-        # 結果をCSVファイルに保存
-        writer.writerow([particle_id, area_projected, semi_major_axis_projected, semi_minor_axis_projected,area_noWarp,semi_major_noWarp,semi_minor_noWarp,event_counts[peak_index]])
+            # 視点ベクトル投影の楕円面積を計算
+            semi_major_axis_projected = width_projected / 2
+            semi_minor_axis_projected = height_projected / 2
+            area_projected = (
+                np.pi * semi_major_axis_projected * semi_minor_axis_projected
+            )
 
-# 画像をファイルに保存
-#img_output_file = f'{file_path.split(".pkl")[0]}.png'
-#plt.savefig(img_output_file, dpi=300)
-#plt.close()
+            # 結果をCSVファイルに保存
+            writer.writerow(
+                [
+                    particle_id,
+                    area_projected,
+                    semi_major_axis_projected,
+                    semi_minor_axis_projected,
+                    area_noWarp,
+                    semi_major_noWarp,
+                    semi_minor_noWarp,
+                    event_counts[peak_index],
+                ]
+            )
 
-#print(f"Results saved to {output_file} and image saved to {img_output_file}")
+    # 画像をファイルに保存
+    # img_output_file = f'{file_path.split(".pkl")[0]}.png'
+    # plt.savefig(img_output_file, dpi=300)
+    # plt.close()
+
+    # print(f"Results saved to {output_file} and image saved to {img_output_file}")
+
+
+def main() -> None:
+    args = parser.parse_args()
+    process_file(args.input)
+
+
+if __name__ == "__main__":
+    main()
