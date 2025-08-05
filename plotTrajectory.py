@@ -62,7 +62,7 @@ def process_pickle_file(particle_output_file):
         if plot_events:
             events = particle_info['events']
             event_coords = np.array(events)
-            event_times = event_coords[:, 2] * 1e-3  # Convert event times to milliseconds
+            event_times = event_coords[:, 3] * 1e-3  # Convert event times to milliseconds
 
             # 描画のためのダウンサンプリング
             num_events = len(events)
@@ -71,7 +71,7 @@ def process_pickle_file(particle_output_file):
                 if sample_size > 0:
                     sampled_indices = np.random.choice(num_events, sample_size, replace=False)
                     sampled_events = event_coords[sampled_indices]
-                    sampled_event_times = event_times[sampled_indices]
+                    sampled_event_times = sampled_events[:, 3] * 1e-3
                     
                     # Scatter plot
                     ax.scatter(sampled_event_times, sampled_events[:, 0], sampled_events[:, 1], alpha=0.3, marker='.')
