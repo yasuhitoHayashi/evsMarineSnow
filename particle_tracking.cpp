@@ -50,7 +50,7 @@ public:
         events.emplace_back(x, y, time);
         recent_events.emplace_back(x, y, time);
         mass++;
-        float cutoff = time - 2000.0f;  // 2 ms プルーニング
+        float cutoff = time - 2000.0f;  // 2 ms pruning
         while (!recent_events.empty() &&
                std::get<2>(recent_events.front()) < cutoff) {
             recent_events.pop_front();
@@ -58,7 +58,7 @@ public:
         update_centroid(time);
     }
 
-    // 正しい重みづけでマージ
+    // Fixed merge weighting
     void merge(const Particle& other) {
         for (auto const& e : other.events) {
             events.push_back(e);
@@ -91,16 +91,30 @@ public:
     }
 };
 
-// トップハットによる重なり判定
-static bool elliptical_tophat(int x1, int y1, float t1,
-                              int x2, int y2, float t2,
-                              double sigma_x, double sigma_t)
+// Optimized top-hat overlap: precomputed inverses, early-exit
+static inline bool elliptical_tophat_fast(int x1, int y1, float t1,
+                                          int x2, int y2, float t2,
+                                          double inv_sigma_x,
+                                          double inv_sigma_t)
 {
-    double dx = (x1 - x2) / sigma_x;
-    double dy = (y1 - y2) / sigma_x;  // 空間は同じ σₓ
-    double dt = (t1 - t2) / sigma_t;
-    return (dx*dx + dy*dy + dt*dt) <= 1.0;
+    double dt = (t1 - t2) * inv_sigma_t;
+    double dt2 = dt * dt;
+    if (dt2 > 1.0) return false;
+    double dx = (x1 - x2) * inv_sigma_x;
+    double dy = (y1 - y2) * inv_sigma_x;
+    return (dx*dx + dy*dy + dt2) <= 1.0;
 }
+
+// トップハットによる重なり判定
+// static bool elliptical_tophat(int x1, int y1, float t1,
+//                               int x2, int y2, float t2,
+//                               double sigma_x, double sigma_t)
+// {
+//     double dx = (x1 - x2) / sigma_x;
+//     double dy = (y1 - y2) / sigma_x;  // 空間は同じ σₓ
+//     double dt = (t1 - t2) / sigma_t;
+//     return (dx*dx + dy*dy + dt*dt) <= 1.0;
+// }
 
 PYBIND11_MODULE(particle_tracking, m) {
     py::class_<ParticleResult>(m, "ParticleResult")
@@ -116,6 +130,10 @@ PYBIND11_MODULE(particle_tracking, m) {
               if (data.empty())
                   throw std::invalid_argument("Input data is empty.");
 
+              // precompute inverses
+              double inv_sigma_x = 1.0 / sigma_x;
+              double inv_sigma_t = 1.0 / sigma_t;
+
               std::vector<Particle> active, finished;
               int id_counter = 0;
 
@@ -124,13 +142,12 @@ PYBIND11_MODULE(particle_tracking, m) {
                   std::tie(x, y, t) = evt;
 
                   std::vector<size_t> overlap;
-                  // トップハット判定で overlap を探す
                   for (size_t i = 0; i < active.size(); ++i) {
                       for (auto const& re : active[i].recent_events) {
-                          if (elliptical_tophat(
-                                  x, y, t,
-                                  std::get<0>(re), std::get<1>(re), std::get<2>(re),
-                                  sigma_x, sigma_t))
+                          if (elliptical_tophat_fast(
+                                x, y, t,
+                                std::get<0>(re), std::get<1>(re), std::get<2>(re),
+                                inv_sigma_x, inv_sigma_t))
                           {
                               overlap.push_back(i);
                               break;
@@ -155,7 +172,7 @@ PYBIND11_MODULE(particle_tracking, m) {
                       }
                   }
 
-                  // 非アクティブを切り出す
+                  // prune inactive
                   for (auto it = active.begin(); it != active.end();) {
                       if (!it->is_active(t, m_threshold)) {
                           finished.push_back(*it);
@@ -166,13 +183,11 @@ PYBIND11_MODULE(particle_tracking, m) {
                   }
               }
 
-              // 残りを結果に
+              // finalize remainder
               for (auto const& p : active) finished.push_back(p);
               finished.erase(
                   std::remove_if(finished.begin(), finished.end(),
-                                 [&](Particle const& p){
-                                     return !p.is_active_final(m_threshold);
-                                 }),
+                                 [&](Particle const& p){ return !p.is_active_final(m_threshold); }),
                   finished.end());
 
               std::vector<ParticleResult> results;
@@ -185,5 +200,5 @@ PYBIND11_MODULE(particle_tracking, m) {
           py::arg("sigma_x"),
           py::arg("sigma_t"),
           py::arg("m_threshold"),
-          "Track particles using pure top-hat association");
+          "Track particles with optimized pure top-hat association");
 }
