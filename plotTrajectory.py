@@ -22,89 +22,68 @@ plt.rcParams.update({
 
 parser = argparse.ArgumentParser(description='Particle tracking script.')
 parser.add_argument('-i', '--input', required=True, help='Path to the input pickle file or directory.')
+parser.add_argument('--event_threshold', type=int, default=1000,
+                    help='Minimum number of events required to plot a particle (default: 1000)')
+parser.add_argument('--sampling_ratio', type=float, default=0.1,
+                    help='Ratio of events to sample for plotting (default: 0.1)')
 args = parser.parse_args()
 
 # プロット用にイベントを抽出
-sampling_ratio = 0.01
+sampling_ratio = args.sampling_ratio
+event_threshold = args.event_threshold
 
 # イベントをプロットするか否かのフラグ  
 plot_events = False  # Falseにすることで、重心のみをプロット
 
-def process_pickle_file(particle_output_file):
-    output_directory = os.path.dirname(particle_output_file)
-    
-    # 出力フォルダ (fft_results) を作成
-    fft_results_dir = os.path.join(output_directory, 'plotTrajectory_results')
-    os.makedirs(fft_results_dir, exist_ok=True)  # 既に存在していてもエラーを出さない
-    
-    # ファイル名の処理: 前から3つ目の "_" より後の部分を使い、".pkl"を除去
-    base_filename = os.path.basename(particle_output_file)
-    base_filename = '_'.join(base_filename.split('_')[3:]).replace('.pkl', '')
+def process_pickle_file(pkl_file, event_threshold):
+    output_dir = os.path.dirname(pkl_file)
+    results_dir = os.path.join(output_dir, 'plotTrajectory_results')
+    os.makedirs(results_dir, exist_ok=True)
 
-    with open(particle_output_file, 'rb') as f:
+    base_name = os.path.basename(pkl_file)
+    base_name = '_'.join(base_name.split('_')[3:]).replace('.pkl', '')
+
+    with open(pkl_file, 'rb') as f:
         particle_data = pickle.load(f)
 
-    # Create a 3D plot using Matplotlib
-    fig = plt.figure(figsize=(10, 8))
+    fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    # 粒子の軌跡とイベントをプロット
-    for particle_id, particle_info in particle_data.items():
-        if 'centroid_history' in particle_info:
-            centroid_history = np.array(particle_info['centroid_history'])  # (time, centroid_x, centroid_y)
+    for pid, info in particle_data.items():
+        events = info.get('events', [])
+        if len(events) < event_threshold:
+            continue  # Skip particles with fewer events than threshold
 
-            # 重心の履歴、1以上あるかどうか
-            if len(centroid_history) > 1:
-                # 重心の軌跡をプロット
-                ax.plot(centroid_history[:, 0] * 1e-3, centroid_history[:, 1], centroid_history[:, 2],label=f'Particle {particle_id} Centroid Trajectory')
+        centroids = np.array(info['centroid_history'])  # [n, 3]
+        if centroids.shape[0] > 1:
+            times_ms = centroids[:, 0] * 1e-3
+            xs = centroids[:, 1]
+            ys = centroids[:, 2]
+            ax.plot(times_ms, xs, ys, label=f'Particle {pid}')
 
-        # フラグがTrueの場合、イベントをプロット
         if plot_events:
-            events = particle_info['events']
-            event_coords = np.array(events)
-            event_times = event_coords[:, 3] * 1e-3  # Convert event times to milliseconds
+            ev = np.array(events)
+            ev_times = ev[:, 3] * 1e-3
+            ax.scatter(ev_times, ev[:, 0], ev[:, 1], alpha=0.3, marker='.')
 
-            # 描画のためのダウンサンプリング
-            num_events = len(events)
-            if sampling_ratio < 1.0:
-                sample_size = int(num_events * sampling_ratio)
-                if sample_size > 0:
-                    sampled_indices = np.random.choice(num_events, sample_size, replace=False)
-                    sampled_events = event_coords[sampled_indices]
-                    sampled_event_times = sampled_events[:, 3] * 1e-3
-                    
-                    # Scatter plot
-                    ax.scatter(sampled_event_times, sampled_events[:, 0], sampled_events[:, 1], alpha=0.3, marker='.')
-            else:
-                # ダウンサンプリングしない場合
-                ax.scatter(event_times, event_coords[:, 0], event_coords[:, 1], alpha=0.3, marker='.')
-
-    ax.set_xlabel('Time (milliseconds)')
+    ax.set_xlabel('Time (ms)')
     ax.set_ylabel('X Coordinate')
     ax.set_zlabel('Y Coordinate')
-
-    ax.set_ylim([0, 1280])
-    ax.set_zlim([0, 720])
-    ax.view_init(elev=4, azim=-40)  # 必要に応じて数値を変更
-
-    #output_image_file = os.path.join(fft_results_dir, f'{base_filename}_trajectory.png')
-    plt.tight_layout()  # レイアウトを調整
+    ax.set_ylim(0, 1280)
+    ax.set_zlim(0, 720)
+    ax.view_init(elev=4, azim=-40)
+    plt.tight_layout()
     plt.show()
-    #plt.savefig('plotTrajectory.png')
-    #plt.close()
+
 
 input_path = args.input
-
 if os.path.isdir(input_path):
-    # ディレクトリ内のすべてのファイルを処理
-    for filename in os.listdir(input_path):
-        if filename.endswith('.pkl'):
-            file_path = os.path.join(input_path, filename)
-            print(f"Processing file: {file_path}")
-            process_pickle_file(file_path)
+    for fname in os.listdir(input_path):
+        if fname.endswith('.pkl'):
+            print(f'Processing {fname}')
+            process_pickle_file(os.path.join(input_path, fname), args.event_threshold)
 elif os.path.isfile(input_path) and input_path.endswith('.pkl'):
-    # 単一ファイルを処理
-    print(f"Processing file: {input_path}")
-    process_pickle_file(input_path)
+    print(f'Processing {input_path}')
+    process_pickle_file(input_path, args.event_threshold)
 else:
-    print(f"Error: {input_path} is not a valid pickle file or directory.")
+    print(f'Error: {input_path} is not a pickle file or directory.')
