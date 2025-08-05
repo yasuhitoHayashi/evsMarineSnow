@@ -21,7 +21,6 @@ start_time = data_filtered['time'].min()
 time_limit = start_time + 500000  # 500ms
 data_filtered = data_filtered[data_filtered['time'] <= time_limit]
 
-# Convert to list of tuples for C++ 関数互換
 # new: (x, y, polarity, time)
 data_list = [
     (int(row.x), int(row.y), 1, float(row.time))
