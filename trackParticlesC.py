@@ -18,7 +18,7 @@ data = pd.read_csv(file_path, header=None, names=['x', 'y', 'polarity', 'time'])
 data_filtered = data[data['polarity'] == 1].copy()
 
 start_time = data_filtered['time'].min()
-time_limit = start_time + 5000000  # 500 ms (µs)
+time_limit = start_time + 1000000  # 1000 ms (µs)
 data_filtered = data_filtered[data_filtered['time'] <= time_limit]
 
 # Prepare data_list as (x, y, time) tuples for top-hat version
@@ -30,9 +30,9 @@ data_list = [
 print(f"Number of data points after filtering: {len(data_filtered)}")
 
 # Top-hat association parameters
-sigma_x = 6.0 * 0.668       # 空間半径 (pixels)
+sigma_x = 9.0 * 0.668       # 空間半径 (pixels)
 sigma_t = 10000. * 0.668    # 時間半径 (µs)
-m_threshold = 10    # 質量のしきい値
+m_threshold = 100    # 質量のしきい値
 
 try:
     # Call top-hat version: signature (data, sigma_x, sigma_t, m_threshold)

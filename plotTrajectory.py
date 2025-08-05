@@ -22,7 +22,7 @@ plt.rcParams.update({
 
 parser = argparse.ArgumentParser(description='Particle tracking script.')
 parser.add_argument('-i', '--input', required=True, help='Path to the input pickle file or directory.')
-parser.add_argument('--event_threshold', type=int, default=1000,
+parser.add_argument('--event_threshold', type=int, default=100,
                     help='Minimum number of events required to plot a particle (default: 1000)')
 parser.add_argument('--sampling_ratio', type=float, default=0.1,
                     help='Ratio of events to sample for plotting (default: 0.1)')
