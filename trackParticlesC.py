@@ -17,9 +17,8 @@ data = pd.read_csv(file_path, header=None, names=['x', 'y', 'polarity', 'time'])
 # Use only data with polarity 1
 data_filtered = data[data['polarity'] == 1].copy()
 
-# スタートから最初の1秒（1,000,000マイクロ秒）以内のデータだけをフィルタリング
 start_time = data_filtered['time'].min()
-time_limit = start_time + 5000000  # 1秒 = 1,000,000マイクロ秒
+time_limit = start_time + 500000  # 500ms
 data_filtered = data_filtered[data_filtered['time'] <= time_limit]
 
 # Convert to list of tuples for C++ 関数互換
@@ -32,7 +31,7 @@ data_list = [
 print(f"Number of data points after filtering: {len(data_filtered)}")
 
 # トップハット判定のパラメータ
-sigma_x = 9.0       # 空間半径
+sigma_x = 10       # 空間半径
 sigma_t = 10000.0 # 時間半径（us）
 m_threshold = 100  # 質量のしきい値
 

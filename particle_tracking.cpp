@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <deque>
 #include <vector>
 #include <tuple>
 #include <cmath>
@@ -21,7 +22,7 @@ class Particle {
 public:
     int particle_id;
     std::vector<std::tuple<int,int,int,float>> events;
-    std::vector<std::tuple<int,int,int,float>> recent_events;
+    std::deque<std::tuple<int,int,int,float>> recent_events;
     std::vector<std::tuple<float,double,double>> centroid_history;
     int mass;
     float window_size_us;
@@ -51,7 +52,7 @@ public:
         mass++;
         float cutoff_time = time - window_size_us;
         while (!recent_events.empty() && std::get<3>(recent_events.front()) < cutoff_time) {
-            recent_events.erase(recent_events.begin());
+            recent_events.pop_front();
         }
         update_centroid(time);
     }

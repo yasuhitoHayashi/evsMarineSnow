@@ -28,7 +28,7 @@ args = parser.parse_args()
 sampling_ratio = 0.01
 
 # イベントをプロットするか否かのフラグ  
-plot_events = True  # Falseにすることで、重心のみをプロット
+plot_events = False  # Falseにすることで、重心のみをプロット
 
 def process_pickle_file(particle_output_file):
     output_directory = os.path.dirname(particle_output_file)
@@ -84,7 +84,7 @@ def process_pickle_file(particle_output_file):
     ax.set_zlabel('Y Coordinate')
 
     ax.set_ylim([0, 1280])
-    ax.set_zlim([720, 0])
+    ax.set_zlim([0, 720])
     ax.view_init(elev=4, azim=-40)  # 必要に応じて数値を変更
 
     #output_image_file = os.path.join(fft_results_dir, f'{base_filename}_trajectory.png')
