@@ -1,206 +1,165 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <deque>
 #include <vector>
 #include <tuple>
 #include <cmath>
 #include <algorithm>
-#include <limits>  // for std::numeric_limits
+#include <limits>
+#include <stdexcept>
 
-// Struct to hold the result for each particle, including centroid history
+namespace py = pybind11;
+
+// Struct for particle tracking result
 struct ParticleResult {
     int particle_id;
-    std::vector<std::tuple<float, double, double>> centroid_history;  // (time, centroid_x, centroid_y)
-    std::vector<std::tuple<int, int, float>> events;  // List of (x, y, time) events with float time
+    std::vector<std::tuple<float, double, double>> centroid_history;
+    std::vector<std::tuple<int, int, int, float>> events;
 };
 
+// Particle class
 class Particle {
 public:
     int particle_id;
-    std::deque<std::tuple<int, int, float>> events;  // (x, y, time) events with float time
-    std::deque<std::tuple<int, int, float>> recent_events;  // Recent events for centroid calculation
-    double centroid_x, centroid_y;
+    std::vector<std::tuple<int,int,int,float>> events;
+    std::vector<std::tuple<int,int,int,float>> recent_events;
+    std::vector<std::tuple<float,double,double>> centroid_history;
     int mass;
-    std::deque<std::tuple<float, double, double>> centroid_history;  // (time, centroid_x, centroid_y)
+    float window_size_us;
+    float decay_tau;
 
-    Particle(int id, int x, int y, float time) : particle_id(id), centroid_x(x), centroid_y(y), mass(1) {
-        events.push_back(std::make_tuple(x, y, time));
-        recent_events.push_back(std::make_tuple(x, y, time));  // Add to recent events as well
-        centroid_history.push_back(std::make_tuple(time, centroid_x, centroid_y));
+    Particle(int id, int x, int y, int polarity, float time, float window_us)
+        : particle_id(id), mass(1), window_size_us(window_us), decay_tau(window_us) {
+        events.emplace_back(x, y, polarity, time);
+        recent_events.emplace_back(x, y, polarity, time);
+        centroid_history.emplace_back(time, x, y);
     }
 
-    // マージ用の関数
-    void merge(const Particle& other) {
-        // 他の粒子のイベントを全て追加
-        for (const auto& event : other.events) {
-            events.push_back(event);
-            recent_events.push_back(event);  // recent_eventsにも追加
+    void update_centroid(float time) {
+        double sum_x = 0.0, sum_y = 0.0;
+        for (const auto& evt : recent_events) {
+            sum_x += std::get<0>(evt);
+            sum_y += std::get<1>(evt);
         }
-
-        // 質量の統合
-        mass += other.mass;
-
-        // 重心の再計算（質量で重み付けした座標平均）
-        double total_mass = mass + other.mass;
-        centroid_x = (centroid_x * mass + other.centroid_x * other.mass) / total_mass;
-        centroid_y = (centroid_y * mass + other.centroid_y * other.mass) / total_mass;
-
-        // 重心の履歴を更新
-        if (!recent_events.empty()) {
-            float time = std::get<2>(recent_events.back());
-            centroid_history.push_back(std::make_tuple(time, centroid_x, centroid_y));
-        }
+        double centroid_x = sum_x / recent_events.size();
+        double centroid_y = sum_y / recent_events.size();
+        centroid_history.emplace_back(time, centroid_x, centroid_y);
     }
 
-    void add_event(int x, int y, float time) {
-        events.push_back(std::make_tuple(x, y, time));
-        recent_events.push_back(std::make_tuple(x, y, time));  // Add to recent events
+    void add_event(int x, int y, int polarity, float time) {
+        events.emplace_back(x, y, polarity, time);
+        recent_events.emplace_back(x, y, polarity, time);
         mass++;
-
-        // Remove old events from recent_events (older than 2000us)
-        float cutoff_time = time - 2000.0;
-        while (!recent_events.empty() && std::get<2>(recent_events.front()) < cutoff_time) {
-            recent_events.pop_front();
+        float cutoff_time = time - window_size_us;
+        while (!recent_events.empty() && std::get<3>(recent_events.front()) < cutoff_time) {
+            recent_events.erase(recent_events.begin());
         }
+        update_centroid(time);
+    }
 
-        // Calculate centroid based on recent events
-        if (!recent_events.empty()) {
-            double sum_x = 0, sum_y = 0;
-            for (const auto& event : recent_events) {
-                sum_x += std::get<0>(event);
-                sum_y += std::get<1>(event);
-            }
-            centroid_x = sum_x / recent_events.size();
-            centroid_y = sum_y / recent_events.size();
+    void merge(const Particle& other) {
+        for (const auto& evt : other.events) {
+            events.push_back(evt);
+            recent_events.push_back(evt);
         }
+        int original_mass = mass;
+        mass += other.mass;
+        double this_x = std::get<1>(centroid_history.back());
+        double this_y = std::get<2>(centroid_history.back());
+        double other_x = std::get<1>(other.centroid_history.back());
+        double other_y = std::get<2>(other.centroid_history.back());
+        double total_mass = original_mass + other.mass;
+        double merged_x = (this_x * original_mass + other_x * other.mass) / total_mass;
+        double merged_y = (this_y * original_mass + other_y * other.mass) / total_mass;
+        float latest_time = std::get<3>(recent_events.back());
+        centroid_history.emplace_back(latest_time, merged_x, merged_y);
+    }
 
-        // Save the current centroid to history
-        centroid_history.push_back(std::make_tuple(time, centroid_x, centroid_y));
+    float current_confidence(float current_time) const {
+        float dt = current_time - std::get<3>(events.back());
+        return std::exp(-dt / decay_tau);
     }
 
     bool is_active(float current_time, int m_threshold) const {
-        // Check if the particle is inactive based on time and mass
-        if (!events.empty() && std::get<2>(events.back()) < current_time - 2000.0) {
-            return mass > m_threshold;  // Inactive if mass is below the threshold
-        }
-        return true;  // Otherwise active
+        if (current_confidence(current_time) < 0.5f) return false;
+        if (std::get<3>(events.back()) < current_time - window_size_us)
+            return mass > m_threshold;
+        return true;
     }
 
-    // Final check based on mass only, ignoring time
     bool is_active_final(int m_threshold) const {
-        return mass > m_threshold;  // Only mass is considered for the final check
+        return mass > m_threshold;
     }
 
-    // Function to return particle results for Python
     ParticleResult get_result() const {
-        ParticleResult result;
-        result.particle_id = particle_id;
-        result.centroid_history = std::vector<std::tuple<float, double, double>>(centroid_history.begin(), centroid_history.end());
-        result.events = std::vector<std::tuple<int, int, float>>(events.begin(), events.end());
-        return result;
+        return { particle_id, centroid_history, events };
     }
 };
 
-// トップハット分布による距離判定
-bool tophat_overlap(int x1, int y1, float t1, int x2, int y2, float t2, double radius_x, double radius_t) {
-    double spatial_distance_sq = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
-    double time_distance = std::abs(t1 - t2);
-    return spatial_distance_sq <= radius_x * radius_x && time_distance <= radius_t;
-}
-
-std::vector<ParticleResult> track_particles_cpp(const std::vector<std::tuple<int, int, float>>& data,
-                                                double sigma_x, double sigma_t,
-                                                double /*gaussian_threshold*/,
-                                                int m_threshold) {
-    std::vector<Particle> particles;
-    int particle_id_counter = 0;
-
-    // Iterate through each event in the data
-    for (const auto& event : data) {
-        int x = std::get<0>(event);
-        int y = std::get<1>(event);
-        float time = std::get<2>(event);
-
-        bool found_overlap = false;
-        size_t overlapping_particle_index = std::numeric_limits<size_t>::max();  // 修正: size_tに変更
-
-        // Iterate over each particle to check if the event belongs to one
-        for (size_t i = 0; i < particles.size(); ++i) {  // 修正: size_tに変更
-            Particle& particle = particles[i];
-
-            // Check all recent events within the last 2000us
-            for (const auto& recent_event : particle.recent_events) {
-                // トップハット分布による距離判定
-                if (tophat_overlap(x, y, time,
-                                   std::get<0>(recent_event),
-                                   std::get<1>(recent_event),
-                                   std::get<2>(recent_event),
-                                   sigma_x, sigma_t)) {
-                    particle.add_event(x, y, time);
-                    found_overlap = true;
-                    overlapping_particle_index = i;
-                    break;
-                }
-            }
-            if (found_overlap) {
-                break;
-            }
-        }
-
-        if (!found_overlap) {
-            // Create a new particle if no overlap was found
-            particle_id_counter++;
-            Particle new_particle(particle_id_counter, x, y, time);
-            particles.push_back(new_particle);
-        } else if (overlapping_particle_index != std::numeric_limits<size_t>::max()) {
-            // If another overlapping particle is found, merge them
-            for (size_t i = 0; i < particles.size(); ++i) {
-                if (i != overlapping_particle_index) {
-                    Particle& particle = particles[i];
-
-                    // トップハット分布に基づく距離計算で、同じ条件で2つの粒子が重なっているかチェック
-                    for (const auto& recent_event : particle.recent_events) {
-                        if (tophat_overlap(
-                                std::get<0>(particles[overlapping_particle_index].recent_events.back()),
-                                std::get<1>(particles[overlapping_particle_index].recent_events.back()),
-                                std::get<2>(particles[overlapping_particle_index].recent_events.back()),
-                                std::get<0>(recent_event),
-                                std::get<1>(recent_event),
-                                std::get<2>(recent_event),
-                                sigma_x, sigma_t)) {
-                            // Merge the particles
-                            particles[overlapping_particle_index].merge(particle);
-                            particles.erase(particles.begin() + i);  // Merge後、消す
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Remove inactive particles based on time and mass
-        particles.erase(std::remove_if(particles.begin(), particles.end(),
-            [time, m_threshold](const Particle& p) { return !p.is_active(time, m_threshold); }), particles.end());
-    }
-
-    // At the end, check for particles based only on mass
-    particles.erase(std::remove_if(particles.begin(), particles.end(),
-        [m_threshold](const Particle& p) { return !p.is_active_final(m_threshold); }), particles.end());
-
-    // Return results as a vector of ParticleResult for Python
-    std::vector<ParticleResult> results;
-    for (const auto& particle : particles) {
-        results.push_back(particle.get_result());
-    }
-
-    return results;
+// Elliptical top-hat overlap: normalized squared distance <= 1
+static bool elliptical_tophat(int x1, int y1, float t1,
+                              int x2, int y2, float t2,
+                              double sigma_x, double sigma_t) {
+    double dx = (x1 - x2) / sigma_x;
+    double dy = (y1 - y2) / sigma_x;
+    double dt = (t1 - t2) / sigma_t;
+    return dx*dx + dy*dy + dt*dt <= 1.0;
 }
 
 PYBIND11_MODULE(particle_tracking, m) {
-    pybind11::class_<ParticleResult>(m, "ParticleResult")
+    py::class_<ParticleResult>(m, "ParticleResult")
         .def_readonly("particle_id", &ParticleResult::particle_id)
         .def_readonly("centroid_history", &ParticleResult::centroid_history)
         .def_readonly("events", &ParticleResult::events);
 
-    m.def("track_particles_cpp", &track_particles_cpp, "Track particles in C++");
+    m.def("track_particles_cpp", [](const std::vector<std::tuple<int,int,int,float>>& data,
+                                     double sigma_x, double sigma_t,
+                                     int m_threshold, float window_size_us) {
+        if (data.empty()) throw std::invalid_argument("Input data is empty.");
+        std::vector<Particle> active, finished;
+        int id_counter = 0;
+
+        for (auto const& evt : data) {
+            int x, y, pol; float t;
+            std::tie(x, y, pol, t) = evt;
+            std::vector<size_t> overlap;
+            for (size_t i = 0; i < active.size(); ++i) {
+                for (auto const& re : active[i].recent_events) {
+                    if (elliptical_tophat(x, y, t,
+                                          std::get<0>(re), std::get<1>(re), std::get<3>(re),
+                                          sigma_x, sigma_t)) {
+                        overlap.push_back(i);
+                        break;
+                    }
+                }
+            }
+            if (overlap.empty()) {
+                active.emplace_back(++id_counter, x, y, pol, t, window_size_us);
+            } else {
+                size_t base = overlap[0];
+                active[base].add_event(x, y, pol, t);
+                if (overlap.size() > 1) {
+                    std::vector<size_t> to_merge(overlap.begin()+1, overlap.end());
+                    std::sort(to_merge.begin(), to_merge.end(), std::greater<size_t>());
+                    for (size_t idx : to_merge) active[base].merge(active[idx]);
+                    for (size_t idx : to_merge) active.erase(active.begin() + idx);
+                }
+            }
+            for (auto it = active.begin(); it != active.end(); ) {
+                if (!it->is_active(t, m_threshold)) {
+                    finished.push_back(*it);
+                    it = active.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+        for (auto const& p : active) finished.push_back(p);
+        finished.erase(std::remove_if(finished.begin(), finished.end(),
+            [&](Particle const& p){ return !p.is_active_final(m_threshold); }), finished.end());
+        std::vector<ParticleResult> results;
+        results.reserve(finished.size());
+        for (auto const& p : finished) results.push_back(p.get_result());
+        return results;
+    }, py::arg("data"), py::arg("sigma_x"), py::arg("sigma_t"),
+       py::arg("m_threshold"), py::arg("window_size_us")=2000.0f);
 }

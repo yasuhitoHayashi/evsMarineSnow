@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 # Load the particle data from the pickle file
-particle_output_file = '/Users/yasu-air/yhLab/KS24-16/cam2/20240822_160054.pkl'
+#particle_output_file = '/Users/yasu-air/yhLab/KS24-16/cam2/20240822_160054.pkl'
+particle_output_file = '/Users/yasu/yhLab/evsMarineSnow/suruga_test_short.pkl'
 #particle_output_file = 'particle_tracking_results_recording_2024-04-25_10-43-50.pkl'
 
 with open(particle_output_file, 'rb') as f:
