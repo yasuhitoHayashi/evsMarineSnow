@@ -105,8 +105,7 @@ int main(int argc, char** argv) {
     while(true) {
         auto now = std::chrono::high_resolution_clock::now();
         float elapsed_ms = std::chrono::duration<float, std::milli>(now - wall_start).count();
-        //float play_time = start_time + elapsed_ms * 1000.0f; // us
-        float speed_factor = 1.0f;  // 0.1 倍速再生
+        float speed_factor = 1.0f;  // 再生速度倍率
         float play_time = start_time + elapsed_ms * 1000.0f * speed_factor;
 
         // consume events
@@ -117,10 +116,13 @@ int main(int argc, char** argv) {
             while(!bg_events.empty() && std::get<2>(bg_events.front()) < cutoff_bg)
                 bg_events.pop_front();
 
+            // Association
             std::vector<size_t> overlap;
             for(size_t i=0; i<active.size(); ++i) {
                 for(auto &re : active[i].recent) {
-                    if(tophat_fast(x,y,t, std::get<0>(re), std::get<1>(re), std::get<2>(re), inv_sx, inv_st)) {
+                    if(tophat_fast(x,y,t,
+                                  std::get<0>(re),std::get<1>(re),std::get<2>(re),
+                                  inv_sx, inv_st)) {
                         overlap.push_back(i);
                         break;
                     }
@@ -144,19 +146,26 @@ int main(int argc, char** argv) {
 
             // remove lost tracks
             for(auto it = active.begin(); it != active.end();) {
-                // if no recent events within pruning window
                 if(std::get<2>(it->recent.back()) < t - 2000.0f) {
                     it = active.erase(it);
                 } else ++it;
             }
         }
 
-        // set gray background
+        // 描画
         frame.setTo(cv::Scalar(128,128,128));
-        for(auto &be : bg_events) {
-            // draw background events as black dots
-        cv::circle(frame, cv::Point(std::get<0>(be),std::get<1>(be)), 1, cv::Scalar(0,0,0), cv::FILLED);
+
+        // 1) 各粒子の recent イベントを粒子色でプロット
+        for(auto &p : active) {
+            cv::Scalar col = color_map[p.id];
+            for(auto &e : p.recent) {
+                int ex = std::get<0>(e);
+                int ey = std::get<1>(e);
+                cv::circle(frame, cv::Point(ex,ey), 1, col, cv::FILLED);
+            }
         }
+
+        // 2) センチロイド（追跡結果）の描画
         for(auto &p : active) {
             if(p.mass <= 10) continue;
             auto &h = p.history.back();
@@ -164,11 +173,10 @@ int main(int argc, char** argv) {
             int cy = int(std::get<2>(h));
             int radius = 3 + std::min(p.mass,5);
             cv::Scalar col = color_map[p.id];
-            // filled circle for particle
             cv::circle(frame, cv::Point(cx,cy), radius, col, cv::FILLED);
-            // optional border
-            cv::circle(frame, cv::Point(cx,cy), radius, cv::Scalar(0,0,0), 2);
+            cv::circle(frame, cv::Point(cx,cy), radius, cv::Scalar(0,0,0), 3);
         }
+
         cv::imshow("Tracking", frame);
         if(cv::waitKey(frame_loop_ms) == 27) break;
         if(idx >= events.size()) break;
