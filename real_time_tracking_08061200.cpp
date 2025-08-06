@@ -18,6 +18,7 @@
 #include <thread>
 
 // third-party libraries
+#include <opencv2/opencv.hpp>
 #include <Eigen/Dense>
 #include <boost/circular_buffer.hpp>
 
@@ -32,8 +33,6 @@ static constexpr size_t BG_BUFFER_SIZE      =    1000;
 
 using Event    = std::tuple<int,int,double>;  // x, y, timestamp(us)
 using Centroid = std::tuple<double,double,double>;
-
-using Color = SDL_Color;
 
 struct EKFTrack {
     int id;
@@ -57,9 +56,12 @@ struct EKFTrack {
             recent.pop_front();
     }
 
-    void predict(const Eigen::Matrix<double,7,7>& F, const Eigen::Matrix<double,7,7>& Q) {
-        x = F * x;
-        P = F * P * F.transpose() + Q;
+    void predict(double dt) {
+        Eigen::Matrix<double,7,7> F = Eigen::Matrix<double,7,7>::Identity();
+        F(0,2)=dt; F(1,3)=dt;
+        Eigen::Matrix<double,7,7> Q = Eigen::Matrix<double,7,7>::Identity() * 1e-3;
+        x = F*x;
+        P = F*P*F.transpose() + Q;
         updateLambdaInv();
     }
 
@@ -137,7 +139,7 @@ int main(int argc, char** argv) {
     // --- 2) Tracking & drawing setup ---
     std::vector<EKFTrack> active;
     int next_id = 0;
-    std::map<int, Color> color_map;
+    std::map<int,cv::Scalar> color_map;
     std::mt19937 rng{std::random_device{}()};
     std::uniform_int_distribution<int> color_dist(50,255);
 
@@ -148,8 +150,10 @@ int main(int argc, char** argv) {
     auto display_interval       = std::chrono::milliseconds(1000/display_fps);
     auto next_draw_time         = std::chrono::steady_clock::now() + display_interval;
 
-    std::vector<SDL_Point> disp_events;
-    disp_events.reserve(RECENT_BUFFER_SIZE);
+    std::vector<cv::Point> disp_events;
+    cv::Mat frame(720,1280,CV_8UC3);
+    // prepare static background to avoid full clear per frame
+    cv::Mat background(frame.size(), frame.type(), cv::Scalar(30,30,30));
 
     // --- 3) Main loop ---
     double last_time = std::get<2>(events.front());
@@ -164,7 +168,7 @@ int main(int argc, char** argv) {
     }
     SDL_Window* sdl_window = SDL_CreateWindow("Tracking",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1280, 720, SDL_WINDOW_SHOWN);
+        frame.cols, frame.rows, SDL_WINDOW_SHOWN);
     if (!sdl_window) {
         std::cerr << "SDL_CreateWindow Error: " << SDL_GetError() << std::endl;
         SDL_Quit();
@@ -180,7 +184,7 @@ int main(int argc, char** argv) {
     }
     SDL_Texture* sdl_texture = SDL_CreateTexture(sdl_renderer,
         SDL_PIXELFORMAT_BGR24, SDL_TEXTUREACCESS_STREAMING,
-        1280, 720);
+        frame.cols, frame.rows);
     if (!sdl_texture) {
         std::cerr << "SDL_CreateTexture Error: " << SDL_GetError() << std::endl;
         SDL_DestroyRenderer(sdl_renderer);
@@ -188,14 +192,18 @@ int main(int argc, char** argv) {
         SDL_Quit();
         return 1;
     }
+    // create SDL texture for static background
+    SDL_Surface* bg_surface = SDL_CreateRGBSurfaceFrom(
+        background.data, background.cols, background.rows,
+        24, background.step, 0x0000FF, 0x00FF00, 0xFF0000, 0);
+    SDL_Texture* bg_texture = SDL_CreateTextureFromSurface(sdl_renderer, bg_surface);
+    SDL_FreeSurface(bg_surface);
 
     static int processed = 0;
     static int frame_count = 0;
     static auto fps_start = std::chrono::steady_clock::now();
     static int last_fps = 0;
     for (auto &ev : events) {
-        double predict_ms = 0.0, assoc_ms = 0.0, update_ms = 0.0, prune_ms = 0.0;
-
         double t = std::get<2>(ev);
         // Profiling start
         auto prof_loop_start = std::chrono::steady_clock::now();
@@ -211,20 +219,9 @@ int main(int argc, char** argv) {
             ++dt_log_count;
         }
         last_time = t;
-
-        // Precompute state transition and process noise matrices once per frame
-        Eigen::Matrix<double,7,7> F_shared = Eigen::Matrix<double,7,7>::Identity();
-        F_shared(0,2) = dt;
-        F_shared(1,3) = dt;
-        Eigen::Matrix<double,7,7> Q_shared = Eigen::Matrix<double,7,7>::Identity() * 1e-3;
-
-        auto pred_start = std::chrono::steady_clock::now();
-        for (auto &trk : active) trk.predict(F_shared, Q_shared);
-        predict_ms = std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - pred_start).count();
+        for (auto &trk : active) trk.predict(dt);
 
         // b) Associate / create tracks
-        auto assoc_start = std::chrono::steady_clock::now();
         std::vector<size_t> hits;
         for (size_t i=0; i<active.size(); ++i) {
             if (mahalanobis_gate(active[i], ex, ey, t))
@@ -232,7 +229,9 @@ int main(int argc, char** argv) {
         }
         if (hits.empty()) {
             active.emplace_back(++next_id, ex, ey, t);
-            color_map[next_id] = { Uint8(color_dist(rng)), Uint8(color_dist(rng)), Uint8(color_dist(rng)), 255 };
+            color_map[next_id] = cv::Scalar(
+                color_dist(rng), color_dist(rng), color_dist(rng)
+            );
         } else {
             auto &trk = active[hits[0]];
             trk.addEvent(ex, ey, t);
@@ -251,14 +250,12 @@ int main(int argc, char** argv) {
                 trk.updateVariance(chi2);
             }
         }
-        assoc_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - assoc_start).count();
 
         // Profiling after tracking
         auto prof_after_track = std::chrono::steady_clock::now();
         double track_ms = std::chrono::duration<double, std::milli>(prof_after_track - prof_loop_start).count();
 
         // c) Prune old tracks
-        auto prune_start = std::chrono::steady_clock::now();
         active.erase(
             std::remove_if(active.begin(), active.end(),
                 [&](const EKFTrack &trk){
@@ -266,11 +263,10 @@ int main(int argc, char** argv) {
                 }),
             active.end()
         );
-        prune_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prune_start).count();
 
         // d) Sampling for display
         if (uni(rng) < sampling_ratio) {
-            disp_events.push_back(SDL_Point{ex, ey});
+            disp_events.emplace_back(ex, ey);
         }
 
         // count events for this frame
@@ -295,13 +291,18 @@ int main(int argc, char** argv) {
             auto d0 = std::chrono::steady_clock::now();
 
             // clear and draw static background
-            SDL_SetRenderDrawColor(sdl_renderer, 30, 30, 30, 255);
             SDL_RenderClear(sdl_renderer);
+            SDL_RenderCopy(sdl_renderer, bg_texture, nullptr, nullptr);
 
             // draw sampled event points as light gray pixels
+            SDL_SetRenderDrawColor(sdl_renderer, 200, 200, 200, 255);
             if (!disp_events.empty()) {
-                SDL_SetRenderDrawColor(sdl_renderer, 200, 200, 200, 255);
-                SDL_RenderDrawPoints(sdl_renderer, disp_events.data(), (int)disp_events.size());
+                std::vector<SDL_Point> sdl_points;
+                sdl_points.reserve(disp_events.size());
+                for (auto &pt : disp_events) {
+                    sdl_points.push_back({pt.x, pt.y});
+                }
+                SDL_RenderDrawPoints(sdl_renderer, sdl_points.data(), (int)sdl_points.size());
             }
 
             // draw track centroids as small filled rectangles
@@ -309,12 +310,39 @@ int main(int argc, char** argv) {
                 if ((int)trk.recent.size() < MIN_EVENTS_TO_DRAW) continue;
                 int cx = (int)trk.x(0), cy = (int)trk.x(1);
                 SDL_Rect rect{cx - 2, cy - 2, 5, 5};
-                Color c = color_map[trk.id];
-                SDL_SetRenderDrawColor(sdl_renderer, c.r, c.g, c.b, c.a);
+                cv::Scalar c = color_map[trk.id];
+                SDL_SetRenderDrawColor(sdl_renderer, c[0], c[1], c[2], 255);
                 SDL_RenderFillRect(sdl_renderer, &rect);
             }
 
             auto d3 = std::chrono::steady_clock::now();
+
+            // draw timestamp
+            char buf[64];
+            double elapsed_s = (t - start_time) * 1e-6;
+            std::snprintf(buf, sizeof(buf), "t=%.3f s", elapsed_s);
+            cv::putText(frame, buf, cv::Point(10,20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255,255,255), 1);
+
+            // draw processed event count
+            char buf3[64];
+            std::snprintf(buf3, sizeof(buf3), "evts=%d", processed);
+            cv::putText(frame, buf3, cv::Point(10,40), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0,255,255), 1);
+
+            // update FPS
+            frame_count++;
+            auto fps_now = std::chrono::steady_clock::now();
+            double fps_elapsed = std::chrono::duration<double>(fps_now - fps_start).count();
+            if (fps_elapsed >= 1.0) {
+                int fps = int(frame_count / fps_elapsed + 0.5);
+                last_fps = fps;
+                fps_start = fps_now;
+                frame_count = 0;
+            }
+
+            // always draw last_fps
+            char buf_fps2[64];
+            std::snprintf(buf_fps2, sizeof(buf_fps2), "FPS=%d", last_fps);
+            cv::putText(frame, buf_fps2, cv::Point(10,60), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0,255,0), 1);
 
             auto d4 = std::chrono::steady_clock::now();
             static int draw_prof_count = 0;
@@ -332,9 +360,7 @@ int main(int argc, char** argv) {
             double draw_ms = std::chrono::duration<double, std::milli>(prof_after_draw - prof_before_draw).count();
             static int prof_count = 0;
             if (++prof_count % 100 == 0) {
-                std::cout << "[PERF] predict: " << predict_ms << " ms, associate: " << assoc_ms
-                          << " ms, prune: " << prune_ms << " ms, total_track: " << track_ms
-                          << " ms, draw: " << draw_ms << " ms\n";
+                std::cout << "[PERF] track: " << track_ms << " ms, draw: " << draw_ms << " ms\n";
             }
 
             // reset for next frame
@@ -352,6 +378,7 @@ int main(int argc, char** argv) {
     }
 
     // Cleanup SDL resources
+    SDL_DestroyTexture(bg_texture);
     SDL_DestroyTexture(sdl_texture);
     SDL_DestroyRenderer(sdl_renderer);
     SDL_DestroyWindow(sdl_window);
