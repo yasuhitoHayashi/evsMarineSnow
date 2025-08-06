@@ -12,6 +12,8 @@
 #include <cmath>
 #include <stdexcept>
 #include <cstdio>
+#include <iostream>
+#include <thread>
 
 // third-party libraries
 #include <opencv2/opencv.hpp>
@@ -142,23 +144,48 @@ int main(int argc, char** argv) {
     const double sampling_ratio = 0.1;               // sample 10% of events for display
     std::uniform_real_distribution<double> uni(0,1);
 
-    const int display_fps       = 30;                // draw at 10 FPS
+    const int display_fps       = 10;                // draw at 10 FPS
     auto display_interval       = std::chrono::milliseconds(1000/display_fps);
     auto next_draw_time         = std::chrono::steady_clock::now() + display_interval;
 
     std::vector<cv::Point> disp_events;
     cv::Mat frame(720,1280,CV_8UC3);
+    // prepare static background to avoid full clear per frame
+    cv::Mat background(frame.size(), frame.type(), cv::Scalar(30,30,30));
 
     // --- 3) Main loop ---
     double last_time = std::get<2>(events.front());
     double start_time = last_time;
+    // synchronize playback to real time
+    auto wall_start = std::chrono::steady_clock::now();
     static int processed = 0;
+    static int frame_count = 0;
+    static auto fps_start = std::chrono::steady_clock::now();
+    static int last_fps = 0;
     for (auto &ev : events) {
-        int ex = std::get<0>(ev), ey = std::get<1>(ev);
+        // throttle to data time
         double t = std::get<2>(ev);
+        double sim_elapsed = (t - start_time) * 1e-6;  // data elapsed in seconds
+        auto wall_now = std::chrono::steady_clock::now();
+        double wall_elapsed = std::chrono::duration<double>(wall_now - wall_start).count();
+        if (sim_elapsed > wall_elapsed) {
+            std::this_thread::sleep_for(
+                std::chrono::duration<double>(sim_elapsed - wall_elapsed)
+            );
+        }
+        // Profiling start
+        auto prof_loop_start = std::chrono::steady_clock::now();
+
+        int ex = std::get<0>(ev), ey = std::get<1>(ev);
+        // t already defined above
 
         // a) Predict existing tracks
         double dt = (t - last_time)*1e-6;
+        static int dt_log_count = 0;
+        if (dt_log_count < 10) {
+            std::printf("dt=%.6f s\n", dt);
+            ++dt_log_count;
+        }
         last_time = t;
         for (auto &trk : active) trk.predict(dt);
 
@@ -187,6 +214,10 @@ int main(int argc, char** argv) {
             trk.updateVariance(chi2);
         }
 
+        // Profiling after tracking
+        auto prof_after_track = std::chrono::steady_clock::now();
+        double track_ms = std::chrono::duration<double, std::milli>(prof_after_track - prof_loop_start).count();
+
         // c) Prune old tracks
         active.erase(
             std::remove_if(active.begin(), active.end(),
@@ -204,20 +235,16 @@ int main(int argc, char** argv) {
         // count events for this frame
         processed++;
 
+        // Profiling before draw
+        auto prof_before_draw = std::chrono::steady_clock::now();
+
         // e) Time to draw?
         auto now = std::chrono::steady_clock::now();
         if (now >= next_draw_time) {
-            // clear frame
-            frame.setTo(cv::Scalar(30,30,30));
+            // reuse cached background
+            background.copyTo(frame);
 
-            // draw sampled events
-            for (auto &pt : disp_events) {
-                cv::rectangle(frame,
-                              pt - cv::Point(1,1),
-                              pt + cv::Point(1,1),
-                              cv::Scalar(200,200,200),
-                              cv::FILLED);
-            }
+
 
             // draw track centroids
             for (auto &trk : active) {
@@ -237,9 +264,33 @@ int main(int argc, char** argv) {
             std::snprintf(buf3, sizeof(buf3), "evts=%d", processed);
             cv::putText(frame, buf3, cv::Point(10,40), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0,255,255), 1);
 
+            // update FPS
+            frame_count++;
+            auto fps_now = std::chrono::steady_clock::now();
+            double fps_elapsed = std::chrono::duration<double>(fps_now - fps_start).count();
+            if (fps_elapsed >= 1.0) {
+                int fps = int(frame_count / fps_elapsed + 0.5);
+                last_fps = fps;
+                fps_start = fps_now;
+                frame_count = 0;
+            }
+
+            // always draw last_fps
+            char buf_fps2[64];
+            std::snprintf(buf_fps2, sizeof(buf_fps2), "FPS=%d", last_fps);
+            cv::putText(frame, buf_fps2, cv::Point(10,60), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0,255,0), 1);
+
             // show
             cv::imshow("Tracking", frame);
             if (cv::waitKey(1) == 27) break;
+
+            // Profiling after draw
+            auto prof_after_draw = std::chrono::steady_clock::now();
+            double draw_ms = std::chrono::duration<double, std::milli>(prof_after_draw - prof_before_draw).count();
+            static int prof_count = 0;
+            if (++prof_count % 100 == 0) {
+                std::cout << "[PERF] track: " << track_ms << " ms, draw: " << draw_ms << " ms\n";
+            }
 
             // reset for next frame
             disp_events.clear();
