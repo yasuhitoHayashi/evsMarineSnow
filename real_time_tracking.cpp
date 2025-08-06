@@ -163,16 +163,7 @@ int main(int argc, char** argv) {
     static auto fps_start = std::chrono::steady_clock::now();
     static int last_fps = 0;
     for (auto &ev : events) {
-        // throttle to data time
         double t = std::get<2>(ev);
-        double sim_elapsed = (t - start_time) * 1e-6;  // data elapsed in seconds
-        auto wall_now = std::chrono::steady_clock::now();
-        double wall_elapsed = std::chrono::duration<double>(wall_now - wall_start).count();
-        if (sim_elapsed > wall_elapsed) {
-            std::this_thread::sleep_for(
-                std::chrono::duration<double>(sim_elapsed - wall_elapsed)
-            );
-        }
         // Profiling start
         auto prof_loop_start = std::chrono::steady_clock::now();
 
@@ -241,10 +232,21 @@ int main(int argc, char** argv) {
         // e) Time to draw?
         auto now = std::chrono::steady_clock::now();
         if (now >= next_draw_time) {
-            // reuse cached background
+            // frame-level playback sync to real time
+            double sim_elapsed = (t - start_time) * 1e-6;
+            auto wall_now     = std::chrono::steady_clock::now();
+            double wall_elapsed = std::chrono::duration<double>(wall_now - wall_start).count();
+            if (sim_elapsed > wall_elapsed) {
+                std::this_thread::sleep_for(
+                    std::chrono::duration<double>(sim_elapsed - wall_elapsed)
+                );
+            }
+            // detailed draw profiling start
+            auto d0 = std::chrono::steady_clock::now();
+
             background.copyTo(frame);
 
-
+            auto d1 = std::chrono::steady_clock::now();
 
             // draw track centroids
             for (auto &trk : active) {
@@ -252,6 +254,8 @@ int main(int argc, char** argv) {
                 cv::Point cen(int(trk.x(0)), int(trk.x(1)));
                 cv::circle(frame, cen, 4, color_map[trk.id], 10,cv::FILLED);
             }
+
+            auto d2 = std::chrono::steady_clock::now();
 
             // draw timestamp
             char buf[64];
@@ -280,9 +284,22 @@ int main(int argc, char** argv) {
             std::snprintf(buf_fps2, sizeof(buf_fps2), "FPS=%d", last_fps);
             cv::putText(frame, buf_fps2, cv::Point(10,60), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0,255,0), 1);
 
+            auto d3 = std::chrono::steady_clock::now();
+
             // show
             cv::imshow("Tracking", frame);
             if (cv::waitKey(1) == 27) break;
+
+            auto d4 = std::chrono::steady_clock::now();
+            static int draw_prof_count = 0;
+            if (++draw_prof_count % 30 == 0) {
+                double t_bg   = std::chrono::duration<double, std::milli>(d1 - d0).count();
+                double t_trk  = std::chrono::duration<double, std::milli>(d2 - d1).count();
+                double t_txt  = std::chrono::duration<double, std::milli>(d3 - d2).count();
+                double t_show = std::chrono::duration<double, std::milli>(d4 - d3).count();
+                std::cout << "[DRAW] bg=" << t_bg << " ms, trk=" << t_trk
+                          << " ms, text=" << t_txt << " ms, show=" << t_show << " ms\n";
+            }
 
             // Profiling after draw
             auto prof_after_draw = std::chrono::steady_clock::now();
