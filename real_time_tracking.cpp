@@ -24,11 +24,10 @@
 // gating and pruning parameters (units: microseconds/us)
 static constexpr float PRUNE_WINDOW_US      = 10000.0f;  // prune if no events in last 10 ms
 static constexpr float GATE_TIME_US         = 10000.0f;  // allow up to 10 ms between events
-static constexpr double MAX_ASSOC_DIST      =    20.0;   // max pixels for association
-static constexpr double GATE_THRESH         =     1.6;   // Mahalanobis gating threshold
-static constexpr int   MIN_EVENTS_TO_DRAW   =       10;   // draw only if ≥10 recent events
+static constexpr double MAX_ASSOC_DIST      =    30.0;   // max pixels for association
+static constexpr double GATE_THRESH         =     2.0;   // Mahalanobis gating threshold
+static constexpr int   MIN_EVENTS_TO_DRAW   =       30;   // draw only if ≥10 recent events
 static constexpr size_t RECENT_BUFFER_SIZE  =    1000;
-static constexpr size_t BG_BUFFER_SIZE      =    1000;
 
 using Event    = std::tuple<int,int,double>;  // x, y, timestamp(us)
 using Centroid = std::tuple<double,double,double>;
@@ -148,7 +147,8 @@ int main(int argc, char** argv) {
     auto display_interval       = std::chrono::milliseconds(1000/display_fps);
     auto next_draw_time         = std::chrono::steady_clock::now() + display_interval;
 
-    std::vector<SDL_Point> disp_events;
+    // For colored event sampling: store point and track id
+    std::vector<std::pair<SDL_Point,int>> disp_events;
     disp_events.reserve(RECENT_BUFFER_SIZE);
 
     // --- 3) Main loop ---
@@ -225,6 +225,7 @@ int main(int argc, char** argv) {
 
         // b) Associate / create tracks
         auto assoc_start = std::chrono::steady_clock::now();
+        int assigned_id;
         std::vector<size_t> hits;
         for (size_t i=0; i<active.size(); ++i) {
             if (mahalanobis_gate(active[i], ex, ey, t))
@@ -233,6 +234,7 @@ int main(int argc, char** argv) {
         if (hits.empty()) {
             active.emplace_back(++next_id, ex, ey, t);
             color_map[next_id] = { Uint8(color_dist(rng)), Uint8(color_dist(rng)), Uint8(color_dist(rng)), 255 };
+            assigned_id = next_id;
         } else {
             auto &trk = active[hits[0]];
             trk.addEvent(ex, ey, t);
@@ -250,8 +252,14 @@ int main(int argc, char** argv) {
                 double chi2 = (dx.array().square() + dy.array().square()).sum();
                 trk.updateVariance(chi2);
             }
+            assigned_id = trk.id;
         }
         assoc_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - assoc_start).count();
+
+        // d) Sampling for display with track id
+        if (uni(rng) < sampling_ratio) {
+            disp_events.emplace_back(SDL_Point{ex, ey}, assigned_id);
+        }
 
         // Profiling after tracking
         auto prof_after_track = std::chrono::steady_clock::now();
@@ -267,11 +275,6 @@ int main(int argc, char** argv) {
             active.end()
         );
         prune_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prune_start).count();
-
-        // d) Sampling for display
-        if (uni(rng) < sampling_ratio) {
-            disp_events.push_back(SDL_Point{ex, ey});
-        }
 
         // count events for this frame
         processed++;
@@ -298,10 +301,11 @@ int main(int argc, char** argv) {
             SDL_SetRenderDrawColor(sdl_renderer, 30, 30, 30, 255);
             SDL_RenderClear(sdl_renderer);
 
-            // draw sampled event points as light gray pixels
-            if (!disp_events.empty()) {
-                SDL_SetRenderDrawColor(sdl_renderer, 200, 200, 200, 255);
-                SDL_RenderDrawPoints(sdl_renderer, disp_events.data(), (int)disp_events.size());
+            // draw sampled event points by track color
+            for (auto &e : disp_events) {
+                Color c = color_map[e.second];
+                SDL_SetRenderDrawColor(sdl_renderer, c.r, c.g, c.b, c.a);
+                SDL_RenderDrawPoint(sdl_renderer, e.first.x, e.first.y);
             }
 
             // draw track centroids as small filled rectangles
