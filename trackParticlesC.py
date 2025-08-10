@@ -4,8 +4,14 @@ import pickle
 from particle_tracking import track_particles_cpp  # C++ モジュールのインポート
 
 # Argument parser for command line arguments
-parser = argparse.ArgumentParser(description='Particle tracking script.')
+parser = argparse.ArgumentParser(description='Particle tracking script (CSV→PKL).')
 parser.add_argument('-i', '--input', required=True, help='Path to the input CSV file.')
+parser.add_argument('--sigma-x', type=float, default=9.0 * 0.9,
+                    help='Spatial radius (pixels) for association (default: 9.0*0.9).')
+parser.add_argument('--sigma-t', type=float, default=10000.0 * 1.5,
+                    help='Temporal radius (µs) for association (default: 10000*1.5).')
+parser.add_argument('--mass-threshold', type=int, default=80,
+                    help='Minimum mass to promote a particle (default: 80).')
 args = parser.parse_args()
 
 # CSV file path
@@ -29,10 +35,10 @@ data_list = [
 
 print(f"Number of data points after filtering: {len(data_filtered)}")
 
-# Top-hat association parameters
-sigma_x = 9.0 * 0.668       # 空間半径 (pixels)
-sigma_t = 10000. * 0.668    # 時間半径 (µs)
-m_threshold = 100    # 質量のしきい値
+# Top-hat association parameters（時空間の近接を重視する初期値）
+sigma_x = float(args.sigma_x)
+sigma_t = float(args.sigma_t)
+m_threshold = int(args.mass_threshold)
 
 try:
     # Call top-hat version: signature (data, sigma_x, sigma_t, m_threshold)
@@ -58,6 +64,7 @@ try:
         pickle.dump(particle_output, f)
 
     print(f"Particle tracking results saved to {output_file}")
+    print(f"Params used: sigma_x={sigma_x}, sigma_t={sigma_t}, m_threshold={m_threshold}")
 
 except Exception as e:
     print("An error occurred during the particle tracking process.")
