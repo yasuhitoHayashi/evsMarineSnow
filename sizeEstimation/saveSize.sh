@@ -10,7 +10,7 @@ PATTERN="${2:-*.ndjson}"
 
 find "$TARGET_DIR" -type f -name "$PATTERN" \
   | sort \
-  | grep -vE '/truthTraj_[^/]*\.ndjson$' \ //ignore truth trajectory data for simuData
+  | grep -vE '/truthTraj_[^/]*\.ndjson$' \
   | while IFS= read -r in_file; do
       echo "$in_file"
       "$PYTHON_BIN" "$SCRIPT_DIR/saveSize.py" \

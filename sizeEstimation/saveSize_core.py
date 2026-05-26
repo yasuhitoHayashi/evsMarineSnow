@@ -117,7 +117,13 @@ def occupancy_area_occ_min(
             xy_shift = xy.copy()
             xy_shift[:, 0] += float(dx) * float(bin_px)
             xy_shift[:, 1] += float(dy) * float(bin_px)
-            n_on = int(occupancy_area_mask(xy_shift, bin_px=bin_px, morph=morph, kernel_px=kernel_px).sum())
+            mask = occupancy_area_mask(
+                xy_shift,
+                bin_px=bin_px,
+                morph=morph,
+                kernel_px=kernel_px,
+            )
+            n_on = int(mask.sum())
             if best_n is None or n_on < best_n:
                 best_n = n_on
 

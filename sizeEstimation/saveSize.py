@@ -14,6 +14,7 @@ import saveSize_core as sc
 WIN_US_FIXED = 1000
 DEG_FIXED = 2
 BIN_PX_FIXED = 1.0
+PX_TO_MM_FIXED = 0.153
 EDGE_MARGIN_PX_FIXED = 0.0
 IMG_WIDTH_PX_FIXED = 1280.0
 IMG_HEIGHT_PX_FIXED = 720.0
@@ -26,6 +27,7 @@ OUTPUT_COLUMNS = [
     "particle_duration_us",
     "n_events_track",
     f"area_px2_win{WIN_US_FIXED}",
+    "D_mm",
     f"n_events_window_win{WIN_US_FIXED}",
     f"rho_ev_per_px2_win{WIN_US_FIXED}",
     f"best_ts_us_win{WIN_US_FIXED}",
@@ -125,6 +127,11 @@ def estimate_track_area(ev_size: np.ndarray, step_us: int, min_events: int, occ_
     )
 
 
+def equivalent_diameter_mm(area_px2: float) -> float:
+    area_mm2 = float(area_px2) * PX_TO_MM_FIXED * PX_TO_MM_FIXED
+    return float(np.sqrt(4.0 * area_mm2 / np.pi))
+
+
 def process_track(pid: int, ev: np.ndarray, args):
     ev_full = np.asarray(ev, dtype=np.float64)
     if ev_full.shape[0] < 2:
@@ -146,10 +153,11 @@ def process_track(pid: int, ev: np.ndarray, args):
         occ_min=args.occ_min,
     )
     if res is None:
-        row += ["", "", "", ""]
+        row += ["", "", "", "", ""]
     else:
         area, n_ev, rho, best_ts = res
-        row += [f"{area:.6g}", int(n_ev), f"{rho:.6g}", int(best_ts)]
+        d_mm = equivalent_diameter_mm(area)
+        row += [f"{area:.6g}", f"{d_mm:.6g}", int(n_ev), f"{rho:.6g}", int(best_ts)]
     return row, "ok"
 
 

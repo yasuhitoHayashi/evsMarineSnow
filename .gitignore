@@ -1,8 +1,9 @@
 /inSituData
 /mainFigs
 /simuData
-/frameSampling
+/samplingAnalysis/data_output
 /tracking/cpp/build
 .DS_Store
 __pycache__/
 *.pyc
+/inSituData24082219
