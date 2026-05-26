@@ -1,9 +1,16 @@
 /inSituData
+/inSituData_*
 /mainFigs
 /simuData
+/simulation/generated*
 /samplingAnalysis/data_output
 /tracking/cpp/build
+/requirementsDefinition
 .DS_Store
 __pycache__/
 *.pyc
+*.mp4
 /inSituData24082219
+/simulation
+/simulation
+/simulation
