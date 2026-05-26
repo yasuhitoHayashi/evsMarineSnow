@@ -30,3 +30,23 @@ bash tracking/evsMarineSnow.sh path/to/event_csv_directory
 For each CSV file, an .ndjson file is written in the same directory.
 evsMarineSnow tracker uses positive-polarity events and starts the time window from the first
 accepted event in each file.
+
+## Run size estimation
+After tracking, estimate projected particle area from each tracking NDJSON file:
+
+```bash
+PYENV_VERSION=evsMarineSnow pyenv exec python sizeEstimation/saveSize.py \
+  -i path/to/events.ndjson \
+  --exclude-entering-tracks
+```
+
+If no output path is given, `saveSize.py` writes `*_size.csv` next to the input
+NDJSON. The estimator uses the first half of each track, a quadratic trajectory
+model, 1 ms area windows, and filled occupancy area in pixel-squared units.
+
+To process all NDJSON files under a directory:
+
+```bash
+PYTHON_BIN="pyenv exec python" PYENV_VERSION=evsMarineSnow \
+  bash sizeEstimation/saveSize.sh path/to/tracking_output
+```

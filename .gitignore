@@ -1,6 +1,8 @@
 /inSituData
 /mainFigs
 /simuData
-/sizeEstimation
 /frameSampling
 /tracking/cpp/build
+.DS_Store
+__pycache__/
+*.pyc
